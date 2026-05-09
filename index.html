@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ログ分析ダッシュボード</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --color-bg: #f5f5f3;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0f0ee;
+  --color-border: #e2e2de;
+  --color-text: #1a1a18;
+  --color-text-2: #6b6b67;
+  --color-text-3: #a0a09c;
+  --color-accent: #2563eb;
+  --color-accent-light: rgba(37,99,235,0.08);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', sans-serif; background: var(--color-bg); color: var(--color-text); min-height: 100vh; }
+.wrapper { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 3rem; }
+
+/* ヘッダー */
+.header { display:flex; align-items:center; justify-content:space-between; padding: 1.25rem 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; }
+.header h1 { font-size: 16px; font-weight: 600; display:flex; align-items:center; gap:8px; }
+.header h1 i { font-size: 20px; color: var(--color-accent); }
+.btn { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:7px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor:pointer; font-family:inherit; transition: background 0.12s; }
+.btn:hover { background: var(--color-surface-2); }
+.btn-primary { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.btn-primary:hover { background: #1d4ed8; }
+
+/* アップロードゾーン */
+.upload-zone { border: 1.5px dashed var(--color-border); border-radius: var(--radius-lg); padding: 2rem; text-align:center; cursor:pointer; background: var(--color-surface); margin-bottom: 1.5rem; transition: all 0.15s; }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--color-accent); background: var(--color-accent-light); }
+.upload-zone i { font-size:36px; color: var(--color-text-3); }
+.upload-zone p { font-size:14px; color: var(--color-text-2); margin-top:8px; }
+.upload-zone small { font-size:12px; color: var(--color-text-3); margin-top:4px; display:block; }
+
+/* フィルターバー */
+.filter-bar { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.25rem; display:flex; flex-direction:column; gap:10px; }
+.filter-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.filter-label { font-size:12px; color:var(--color-text-2); white-space:nowrap; width:52px; display:flex; align-items:center; gap:4px; }
+input[type=datetime-local] { font-size:12px; padding:5px 8px; border-radius:var(--radius-sm); border:1px solid var(--color-border); background:var(--color-bg); color:var(--color-text); font-family:inherit; }
+.filter-result { font-size:12px; color:var(--color-text-2); margin-left:auto; }
+
+/* ステータスチップ */
+.chips { display:flex; gap:6px; flex-wrap:wrap; }
+.chip { font-size:12px; padding:4px 12px; border-radius:99px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text-2); cursor:pointer; user-select:none; transition:all 0.12s; }
+.chip:hover { border-color: var(--color-accent); }
+.chip.on-2 { background:#f0fde4; color:#166534; border-color:#86efac; }
+.chip.on-3 { background:#fefce8; color:#854d0e; border-color:#fde047; }
+.chip.on-4 { background:#fef2f2; color:#991b1b; border-color:#fca5a5; }
+.chip.on-5 { background:#fdf4ff; color:#7c3aed; border-color:#d8b4fe; }
+
+/* 粒度タブ */
+.gran-tabs { display:flex; gap:3px; }
+.gran-tab { font-size:11px; padding:3px 10px; border-radius:var(--radius-sm); border:1px solid var(--color-border); background:transparent; color:var(--color-text-2); cursor:pointer; font-family:inherit; transition:all 0.1s; }
+.gran-tab:hover { background:var(--color-surface-2); }
+.gran-tab.active { background:var(--color-accent); color:#fff; border-color:var(--color-accent); }
+
+/* メトリクス */
+.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:1.25rem; }
+.metric { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:1rem 1.1rem; }
+.metric .lbl { font-size:12px; color:var(--color-text-2); margin-bottom:4px; }
+.metric .val { font-size:24px; font-weight:600; }
+.metric .sub { font-size:11px; color:var(--color-text-3); margin-top:3px; }
+
+/* カード */
+.card { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:1rem 1.25rem; }
+.card-title { font-size:13px; font-weight:500; color:var(--color-text-2); margin-bottom:0.75rem; }
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:1.25rem; }
+.mb { margin-bottom:1.25rem; }
+
+/* 凡例 */
+.legend { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+.leg { display:flex; align-items:center; gap:4px; font-size:12px; color:var(--color-text-2); }
+.leg-dot { width:10px; height:10px; border-radius:2px; }
+
+/* テーブル */
+.tbl { width:100%; border-collapse:collapse; font-size:13px; }
+.tbl th { font-size:11px; font-weight:500; color:var(--color-text-2); text-align:left; padding:0 0 7px; border-bottom:1px solid var(--color-border); }
+.tbl td { padding:7px 0; border-bottom:1px solid var(--color-border); vertical-align:middle; }
+.tbl tr:last-child td { border-bottom:none; }
+.bar-bg { background:var(--color-bg); border-radius:4px; height:6px; }
+.bar-fill { height:6px; border-radius:4px; background:var(--color-accent); }
+
+/* バッジ */
+.badge { display:inline-block; font-size:11px; font-weight:500; padding:2px 7px; border-radius:4px; }
+.b2{background:#f0fde4;color:#166534;} .b3{background:#fefce8;color:#854d0e;} .b4{background:#fef2f2;color:#991b1b;} .b5{background:#fdf4ff;color:#7c3aed;}
+
+.empty { text-align:center; padding:2.5rem; font-size:13px; color:var(--color-text-3); }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <h1><i class="ti ti-chart-bar"></i> ログ分析ダッシュボード</h1>
+    <button class="btn" onclick="document.getElementById('file-input').click();">
+      <i class="ti ti-upload"></i> ログを読み込む
+    </button>
+    <input type="file" id="file-input" accept=".log,.txt" style="display:none;">
+  </div>
+
+  <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click();">
+    <i class="ti ti-file-text"></i>
+    <p>ここをクリック、またはログファイルをドラッグ＆ドロップ</p>
+    <small>Nginx / Apache 共通ログ形式（Combined Log Format）に対応</small>
+  </div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="filter-bar">
+      <div class="filter-row">
+        <span class="filter-label"><i class="ti ti-clock" style="font-size:13px;"></i> 期間</span>
+        <input type="datetime-local" id="date-from" step="1" onchange="applyFilter()">
+        <span style="font-size:12px;color:var(--color-text-3);">〜</span>
+        <input type="datetime-local" id="date-to" step="1" onchange="applyFilter()">
+        <button class="btn" onclick="resetFilter()"><i class="ti ti-refresh"></i> リセット</button>
+        <span class="filter-result" id="filter-result"></span>
+      </div>
+      <div class="filter-row">
+        <span class="filter-label"><i class="ti ti-filter" style="font-size:13px;"></i> ステータス</span>
+        <div class="chips">
+          <span class="chip on-2" data-code="2" onclick="toggleStatus(this)">2xx 成功</span>
+          <span class="chip on-3" data-code="3" onclick="toggleStatus(this)">3xx リダイレクト</span>
+          <span class="chip on-4" data-code="4" onclick="toggleStatus(this)">4xx クライアントエラー</span>
+          <span class="chip on-5" data-code="5" onclick="toggleStatus(this)">5xx サーバーエラー</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics" id="metrics-row"></div>
+
+    <div class="card mb">
+      <div style="display:flex;align-items:center;margin-bottom:0.75rem;">
+        <span class="card-title" style="margin-bottom:0;">アクセス数推移</span>
+        <div class="gran-tabs" style="margin-left:auto;">
+          <button class="gran-tab" onclick="setGran('sec')"   id="g-sec">秒</button>
+          <button class="gran-tab" onclick="setGran('10sec')" id="g-10sec">10秒</button>
+          <button class="gran-tab" onclick="setGran('min')"   id="g-min">1分</button>
+          <button class="gran-tab" onclick="setGran('10min')" id="g-10min">10分</button>
+          <button class="gran-tab active" onclick="setGran('hour')"  id="g-hour">1時間</button>
+          <button class="gran-tab" onclick="setGran('day')"   id="g-day">1日</button>
+        </div>
+      </div>
+      <div style="position:relative;width:100%;height:200px;">
+        <canvas id="timeChart"></canvas>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">ステータスコード別</div>
+        <div class="legend" id="status-legend"></div>
+        <div style="position:relative;width:100%;height:180px;">
+          <canvas id="statusChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">上位アクセスURL</div>
+        <table class="tbl">
+          <thead><tr><th style="width:44%">URL</th><th style="width:14%">件数</th><th></th></tr></thead>
+          <tbody id="url-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">ログ一覧（最新50件）</div>
+      <table class="tbl">
+        <thead><tr><th>時刻</th><th>IP</th><th>メソッド</th><th>パス</th><th>ステータス</th><th>サイズ(B)</th></tr></thead>
+        <tbody id="recent-body"></tbody>
+      </table>
+      <div id="no-data" class="empty" style="display:none;">
+        <i class="ti ti-mood-empty" style="font-size:28px;display:block;margin-bottom:8px;"></i>該当するログがありません
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let allEntries = [], currentGran = 'hour';
+let timeChartInst = null, statusChartInst = null;
+let selectedStatus = new Set(['2','3','4','5']);
+
+const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+
+function parseLogDate(s) {
+  const m = s.match(/(\d+)\/(\w+)\/(\d+):(\d+):(\d+):(\d+)/);
+  if (!m) return null;
+  return new Date(+m[3], MONTHS[m[2]]||0, +m[1], +m[4], +m[5], +m[6]);
+}
+function parseLog(text) {
+  const re = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)\s+\S+"\s+(\d+)\s+(\d+)/;
+  return text.split('\n').map(l => {
+    const m = l.match(re); if (!m) return null;
+    const dt = parseLogDate(m[2]); if (!dt) return null;
+    return { ip:m[1], dt, method:m[3], path:m[4], status:parseInt(m[5]), size:parseInt(m[6]) };
+  }).filter(Boolean);
+}
+
+function pad(n) { return String(n).padStart(2,'0'); }
+function toLocalVal(dt) {
+  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+}
+
+const GRAN = {
+  sec:    { ms:1000,    floor: dt=>new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),dt.getHours(),dt.getMinutes(),dt.getSeconds()), label:k=>k.slice(14) },
+  '10sec':{ ms:10000,   floor: dt=>{const s=Math.floor(dt.getSeconds()/10)*10;return new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),dt.getHours(),dt.getMinutes(),s);}, label:k=>k.slice(11) },
+  min:    { ms:60000,   floor: dt=>new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),dt.getHours(),dt.getMinutes()), label:k=>k.slice(11,16) },
+  '10min':{ ms:600000,  floor: dt=>{const m=Math.floor(dt.getMinutes()/10)*10;return new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),dt.getHours(),m);}, label:k=>k.slice(11,16) },
+  hour:   { ms:3600000, floor: dt=>new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),dt.getHours()), label:k=>k.slice(11,16) },
+  day:    { ms:86400000,floor: dt=>new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()), label:k=>k.slice(5,10) },
+};
+
+function bucketKey(dt, gran) {
+  const f = GRAN[gran].floor(dt);
+  return `${f.getFullYear()}-${pad(f.getMonth()+1)}-${pad(f.getDate())} ${pad(f.getHours())}:${pad(f.getMinutes())}:${pad(f.getSeconds())}`;
+}
+function allBuckets(from, to, gran) {
+  const { ms, floor } = GRAN[gran];
+  const buckets = [];
+  let cur = floor(from);
+  while (cur <= to && buckets.length < 500) {
+    buckets.push(bucketKey(cur, gran));
+    cur = new Date(cur.getTime() + ms);
+  }
+  return buckets;
+}
+
+function setGran(g) {
+  currentGran = g;
+  document.querySelectorAll('.gran-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('g-'+g).classList.add('active');
+  applyFilter();
+}
+function toggleStatus(el) {
+  const code = el.dataset.code;
+  if (selectedStatus.has(code)) {
+    if (selectedStatus.size === 1) return;
+    selectedStatus.delete(code);
+    el.className = 'chip';
+  } else {
+    selectedStatus.add(code);
+    el.className = `chip on-${code}`;
+  }
+  applyFilter();
+}
+function setDefaultFilterRange(entries) {
+  if (!entries.length) return;
+  const times = entries.map(e=>e.dt.getTime());
+  document.getElementById('date-from').value = toLocalVal(new Date(Math.min(...times)));
+  document.getElementById('date-to').value   = toLocalVal(new Date(Math.max(...times)));
+}
+function getFilteredEntries() {
+  const from = document.getElementById('date-from').value ? new Date(document.getElementById('date-from').value) : null;
+  const to   = document.getElementById('date-to').value   ? new Date(document.getElementById('date-to').value)   : null;
+  return allEntries.filter(e => {
+    if (from && e.dt < from) return false;
+    if (to   && e.dt > to)   return false;
+    if (!selectedStatus.has(String(Math.floor(e.status/100)))) return false;
+    return true;
+  });
+}
+function applyFilter() {
+  const entries = getFilteredEntries();
+  document.getElementById('filter-result').textContent = `${entries.length.toLocaleString()} / ${allEntries.length.toLocaleString()} 件`;
+  renderDashboard(entries);
+}
+function resetFilter() {
+  setDefaultFilterRange(allEntries);
+  selectedStatus = new Set(['2','3','4','5']);
+  document.querySelectorAll('.chip').forEach(el=>{ el.className=`chip on-${el.dataset.code}`; });
+  applyFilter();
+}
+
+function renderDashboard(entries) {
+  const total=entries.length, errors=entries.filter(e=>e.status>=400).length;
+  const ips=new Set(entries.map(e=>e.ip)).size;
+  const totalBytes=entries.reduce((s,e)=>s+(e.size||0),0);
+  document.getElementById('metrics-row').innerHTML = `
+    <div class="metric"><div class="lbl">総リクエスト数</div><div class="val">${total.toLocaleString()}</div></div>
+    <div class="metric"><div class="lbl">ユニークIP</div><div class="val">${ips}</div></div>
+    <div class="metric"><div class="lbl">エラー率</div><div class="val">${total?Math.round(errors/total*100):0}%</div><div class="sub">${errors} 件 (4xx/5xx)</div></div>
+    <div class="metric"><div class="lbl">転送量</div><div class="val">${(totalBytes/1024).toFixed(1)}<span style="font-size:14px;font-weight:400"> KB</span></div></div>
+  `;
+
+  const fromVal=document.getElementById('date-from').value, toVal=document.getElementById('date-to').value;
+  const from=fromVal?new Date(fromVal):(entries.length?new Date(Math.min(...entries.map(e=>e.dt))):new Date());
+  const to  =toVal  ?new Date(toVal)  :(entries.length?new Date(Math.max(...entries.map(e=>e.dt))):new Date());
+  const keys=allBuckets(from,to,currentGran);
+  const countMap={}; keys.forEach(k=>countMap[k]=0);
+  entries.forEach(e=>{const k=bucketKey(e.dt,currentGran);if(k in countMap)countMap[k]++;});
+  const labelFn=GRAN[currentGran].label;
+  if (timeChartInst) timeChartInst.destroy();
+  timeChartInst=new Chart(document.getElementById('timeChart'),{
+    type:'bar',
+    data:{labels:keys.map(labelFn),datasets:[{label:'アクセス数',data:keys.map(k=>countMap[k]),backgroundColor:'rgba(37,99,235,0.7)',borderColor:'#2563eb',borderWidth:1,borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{font:{size:11},maxRotation:45,autoSkip:true,maxTicksLimit:24},grid:{display:false}},y:{ticks:{font:{size:11}},beginAtZero:true}}}
+  });
+
+  const statusMap={};
+  entries.forEach(e=>{const g=Math.floor(e.status/100)+'xx';statusMap[g]=(statusMap[g]||0)+1;});
+  const SC={'2xx':'#22c55e','3xx':'#eab308','4xx':'#ef4444','5xx':'#a855f7'};
+  const sL=Object.keys(statusMap),sD=sL.map(k=>statusMap[k]),sCl=sL.map(k=>SC[k]||'#888');
+  document.getElementById('status-legend').innerHTML=sL.map((l,i)=>`<span class="leg"><span class="leg-dot" style="background:${sCl[i]}"></span>${l}: ${sD[i]}</span>`).join('');
+  if (statusChartInst) statusChartInst.destroy();
+  statusChartInst=new Chart(document.getElementById('statusChart'),{type:'doughnut',data:{labels:sL,datasets:[{data:sD,backgroundColor:sCl,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
+
+  const urlMap={};
+  entries.forEach(e=>urlMap[e.path]=(urlMap[e.path]||0)+1);
+  const topU=Object.entries(urlMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxU=topU[0]?.[1]||1;
+  document.getElementById('url-body').innerHTML=topU.length?topU.map(([url,cnt])=>`
+    <tr>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-2);font-size:12px;">${url}</td>
+      <td style="font-weight:600;">${cnt}</td>
+      <td style="padding-right:4px;"><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(cnt/maxU*100)}%;"></div></div></td>
+    </tr>`).join(''):'<tr><td colspan="3" style="padding:1rem;text-align:center;color:var(--color-text-3);font-size:12px;">データなし</td></tr>';
+
+  function badge(s){const c=s<300?'b2':s<400?'b3':s<500?'b4':'b5';return `<span class="badge ${c}">${s}</span>`;}
+  const recent=entries.slice().reverse().slice(0,50);
+  const rb=document.getElementById('recent-body'), nd=document.getElementById('no-data');
+  if(!recent.length){rb.innerHTML='';nd.style.display='block';}
+  else{
+    nd.style.display='none';
+    rb.innerHTML=recent.map(e=>{
+      const t=`${e.dt.getFullYear()}-${pad(e.dt.getMonth()+1)}-${pad(e.dt.getDate())} ${pad(e.dt.getHours())}:${pad(e.dt.getMinutes())}:${pad(e.dt.getSeconds())}`;
+      return `<tr>
+        <td style="font-size:11px;color:var(--color-text-2);white-space:nowrap;">${t}</td>
+        <td style="font-size:12px;">${e.ip}</td>
+        <td style="font-size:12px;">${e.method}</td>
+        <td style="font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-2);">${e.path}</td>
+        <td>${badge(e.status)}</td>
+        <td style="font-size:12px;color:var(--color-text-2);">${e.size}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+function loadEntries(entries) {
+  allEntries=entries;
+  document.getElementById('drop-zone').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  setDefaultFilterRange(entries);
+  document.getElementById('filter-result').textContent=`${entries.length.toLocaleString()} / ${entries.length.toLocaleString()} 件`;
+  renderDashboard(entries);
+}
+
+document.getElementById('file-input').addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=ev=>loadEntries(parseLog(ev.target.result));r.readAsText(f,'utf-8');
+});
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('drag');
+  const f=e.dataTransfer.files[0];if(!f)return;
+  const r=new FileReader();r.onload=ev=>loadEntries(parseLog(ev.target.result));r.readAsText(f,'utf-8');
+});
+</script>
+</body>
+</html>
