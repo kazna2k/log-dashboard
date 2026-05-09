@@ -106,10 +106,61 @@ input[type=datetime-local] { font-size:12px; padding:5px 8px; border-radius:var(
     <input type="file" id="file-input" accept=".log,.txt" style="display:none;">
   </div>
 
+  <!-- フォーマット選択 -->
+  <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1rem;">
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-2);margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-settings" style="font-size:14px;"></i> ログフォーマット
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="fmt" value="auto" checked onchange="onFmtChange()"> 自動検出
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="fmt" value="common" onchange="onFmtChange()"> Common Log Format
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="fmt" value="combined" onchange="onFmtChange()"> Combined Log Format
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="fmt" value="custom" onchange="onFmtChange()"> カスタム
+      </label>
+    </div>
+    <!-- カスタムフォーマット入力欄 -->
+    <div id="custom-fmt-area" style="display:none;">
+      <div style="font-size:12px;color:var(--color-text-2);margin-bottom:6px;">
+        Apache の <code style="background:var(--color-bg);padding:1px 5px;border-radius:3px;font-size:11px;">LogFormat</code> ディレクティブと同じ書式で入力してください。
+      </div>
+      <input type="text" id="custom-fmt-input"
+        placeholder='例: %h %l %u %t &quot;%r&quot; %&gt;s %b &quot;%{Referer}i&quot; &quot;%{User-Agent}i&quot;'
+        style="width:100%;font-size:12px;padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-bg);color:var(--color-text);font-family:monospace;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--color-text-3);">使えるトークン：</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%h</code>
+        <span style="font-size:11px;color:var(--color-text-3);">IPアドレス</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%t</code>
+        <span style="font-size:11px;color:var(--color-text-3);">時刻</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%r</code>
+        <span style="font-size:11px;color:var(--color-text-3);">リクエスト行</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%&gt;s</code>
+        <span style="font-size:11px;color:var(--color-text-3);">ステータス</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%b</code>
+        <span style="font-size:11px;color:var(--color-text-3);">サイズ</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%{Referer}i</code>
+        <span style="font-size:11px;color:var(--color-text-3);">リファラ</span>
+        <code style="font-size:11px;background:var(--color-bg);padding:1px 5px;border-radius:3px;">%{User-Agent}i</code>
+        <span style="font-size:11px;color:var(--color-text-3);">UA</span>
+      </div>
+      <div id="fmt-error" style="display:none;font-size:12px;color:#ef4444;margin-top:6px;"></div>
+    </div>
+    <div id="fmt-detected" style="display:none;font-size:12px;color:var(--color-text-2);margin-top:4px;">
+      <i class="ti ti-check" style="color:#22c55e;"></i> 検出フォーマット: <span id="fmt-detected-name" style="font-weight:500;"></span>
+    </div>
+  </div>
+
   <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click();">
     <i class="ti ti-file-text"></i>
     <p>ここをクリック、またはログファイルをドラッグ＆ドロップ</p>
-    <small>Nginx / Apache 共通ログ形式（Combined Log Format）に対応</small>
+    <small>Common / Combined Log Format、カスタムフォーマットに対応</small>
   </div>
 
   <div id="dashboard" style="display:none;">
@@ -194,13 +245,184 @@ function parseLogDate(s) {
   if (!m) return null;
   return new Date(+m[3], MONTHS[m[2]]||0, +m[1], +m[4], +m[5], +m[6]);
 }
-function parseLog(text) {
-  const re = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)\s+\S+"\s+(\d+)\s+(\d+)/;
-  return text.split('\n').map(l => {
-    const m = l.match(re); if (!m) return null;
-    const dt = parseLogDate(m[2]); if (!dt) return null;
-    return { ip:m[1], dt, method:m[3], path:m[4], status:parseInt(m[5]), size:parseInt(m[6]) };
-  }).filter(Boolean);
+
+// ===== フォーマット定義 =====
+// Common Log Format: %h %l %u %t "%r" %>s %b
+const RE_COMMON   = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)\s+\S+"\s+(\d+)\s+(\S+)/;
+// Combined Log Format: Common + "%{Referer}i" "%{User-Agent}i"
+const RE_COMBINED = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)\s+\S+"\s+(\d+)\s+(\S+)\s+"([^"]*)"\s+"([^"]*)"/;
+
+function parseLine_common(line) {
+  const m = line.match(RE_COMMON); if (!m) return null;
+  const dt = parseLogDate(m[2]); if (!dt) return null;
+  return { ip:m[1], dt, method:m[3], path:m[4], status:parseInt(m[5]), size:parseInt(m[6])||0, referer:null, ua:null };
+}
+function parseLine_combined(line) {
+  const m = line.match(RE_COMBINED); if (!m) return null;
+  const dt = parseLogDate(m[2]); if (!dt) return null;
+  return { ip:m[1], dt, method:m[3], path:m[4], status:parseInt(m[5]), size:parseInt(m[6])||0, referer:m[7], ua:m[8] };
+}
+
+// ===== カスタムフォーマットパーサー生成 =====
+// ApacheのLogFormatトークンを正規表現に変換する
+function buildCustomParser(fmt) {
+  // トークンマップ: トークン文字列 → { name, pattern }
+  const TOKEN_MAP = [
+    { token: '%h',           name: 'ip',      pat: '(\\S+)' },
+    { token: '%a',           name: 'ip',      pat: '(\\S+)' },
+    { token: '%l',           name: '_',       pat: '\\S+' },
+    { token: '%u',           name: '_',       pat: '\\S+' },
+    { token: '%t',           name: 'time',    pat: '\\[([^\\]]+)\\]' },
+    { token: '%r',           name: 'req',     pat: '"((?:[^"\\\\]|\\\\.)*)"' },
+    { token: '%>s',          name: 'status',  pat: '(\\d+)' },
+    { token: '%s',           name: 'status',  pat: '(\\d+)' },
+    { token: '%b',           name: 'size',    pat: '(\\S+)' },
+    { token: '%B',           name: 'size',    pat: '(\\d+)' },
+    { token: '%{Referer}i',  name: 'referer', pat: '"((?:[^"\\\\]|\\\\.)*)"' },
+    { token: '%{User-Agent}i',name:'ua',      pat: '"((?:[^"\\\\]|\\\\.)*)"' },
+    { token: /%\{[^}]+\}i/,  name: '_hdr',   pat: '"((?:[^"\\\\]|\\\\.)*)"' },
+    { token: /%\{[^}]+\}[eon]/,name:'_var',  pat: '(\\S+)' },
+    { token: '%D',           name: '_',       pat: '(\\d+)' },
+    { token: '%T',           name: '_',       pat: '(\\d+)' },
+    { token: '%I',           name: '_',       pat: '(\\d+)' },
+    { token: '%O',           name: '_',       pat: '(\\d+)' },
+    { token: '%m',           name: 'method',  pat: '(\\S+)' },
+    { token: '%U',           name: 'path',    pat: '(\\S+)' },
+    { token: '%q',           name: 'query',   pat: '(\\S*)' },
+    { token: '%v',           name: '_',       pat: '(\\S+)' },
+    { token: '%V',           name: '_',       pat: '(\\S+)' },
+  ];
+
+  const fields = [];   // キャプチャグループに対応するフィールド名順
+  let regStr = '';
+  let rest = fmt;
+
+  // HTMLエンティティをデコード
+  rest = rest.replace(/&quot;/g,'"').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&');
+
+  while (rest.length > 0) {
+    let matched = false;
+    for (const t of TOKEN_MAP) {
+      const tok = t.token;
+      if (tok instanceof RegExp) {
+        const rm = rest.match(new RegExp('^' + tok.source));
+        if (rm) {
+          regStr += t.pat;
+          if (t.pat.includes('(')) fields.push(t.name);
+          rest = rest.slice(rm[0].length);
+          matched = true; break;
+        }
+      } else {
+        if (rest.startsWith(tok)) {
+          regStr += t.pat;
+          if (t.pat.includes('(')) fields.push(t.name);
+          rest = rest.slice(tok.length);
+          matched = true; break;
+        }
+      }
+    }
+    if (!matched) {
+      // リテラル文字をエスケープして追加
+      regStr += rest[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      rest = rest.slice(1);
+    }
+  }
+
+  let re;
+  try { re = new RegExp('^' + regStr); } catch(e) { return null; }
+
+  return function(line) {
+    const m = line.match(re); if (!m) return null;
+    const obj = { ip:null, dt:null, method:null, path:null, status:0, size:0, referer:null, ua:null };
+    let gi = 1;
+    for (const fname of fields) {
+      const val = m[gi++];
+      if (fname === '_' || fname === '_hdr' || fname === '_var') continue;
+      if (fname === 'time') { obj.dt = parseLogDate(val); }
+      else if (fname === 'req') {
+        // "%r" → "METHOD PATH PROTO"
+        const rp = val.match(/^(\S+)\s+(\S+)/);
+        if (rp) { obj.method = rp[1]; obj.path = rp[2]; }
+      }
+      else if (fname === 'status') obj.status = parseInt(val)||0;
+      else if (fname === 'size')   obj.size   = parseInt(val)||0;
+      else if (fname === 'ip')     obj.ip     = val;
+      else if (fname === 'referer')obj.referer= val;
+      else if (fname === 'ua')     obj.ua     = val;
+      else if (fname === 'method') obj.method = val;
+      else if (fname === 'path')   obj.path   = val;
+    }
+    if (!obj.dt || !obj.ip || !obj.status) return null;
+    return obj;
+  };
+}
+
+// ===== 自動検出 =====
+function detectFormat(lines) {
+  const sample = lines.filter(l=>l.trim()).slice(0, 20);
+  let combined=0, common=0;
+  for (const l of sample) {
+    if (RE_COMBINED.test(l)) combined++;
+    else if (RE_COMMON.test(l)) common++;
+  }
+  if (combined > 0) return 'combined';
+  if (common > 0)   return 'common';
+  return null;
+}
+
+// ===== メインのパース関数 =====
+function parseLog(text, forceFmt, customParser) {
+  const lines = text.split('\n');
+  let parser, detectedName = null;
+
+  if (forceFmt === 'combined') {
+    parser = parseLine_combined; detectedName = 'Combined Log Format';
+  } else if (forceFmt === 'common') {
+    parser = parseLine_common; detectedName = 'Common Log Format';
+  } else if (forceFmt === 'custom' && customParser) {
+    parser = customParser; detectedName = 'カスタムフォーマット';
+  } else {
+    // 自動検出
+    const det = detectFormat(lines);
+    if (det === 'combined') { parser = parseLine_combined; detectedName = 'Combined Log Format（自動検出）'; }
+    else                    { parser = parseLine_common;   detectedName = 'Common Log Format（自動検出）'; }
+  }
+
+  // 検出結果表示
+  const el = document.getElementById('fmt-detected');
+  const nm = document.getElementById('fmt-detected-name');
+  if (detectedName) { el.style.display='block'; nm.textContent = detectedName; }
+  else              { el.style.display='none'; }
+
+  return lines.map(parser).filter(Boolean);
+}
+
+// ===== フォーマットUI制御 =====
+function onFmtChange() {
+  const val = document.querySelector('input[name=fmt]:checked').value;
+  document.getElementById('custom-fmt-area').style.display = val==='custom' ? 'block' : 'none';
+  document.getElementById('fmt-detected').style.display = 'none';
+}
+
+function getCurrentParser() {
+  const val = document.querySelector('input[name=fmt]:checked').value;
+  if (val === 'custom') {
+    const fmtStr = document.getElementById('custom-fmt-input').value.trim();
+    if (!fmtStr) { showFmtError('フォーマット文字列を入力してください'); return null; }
+    const p = buildCustomParser(fmtStr);
+    if (!p) { showFmtError('フォーマット文字列を正規表現に変換できませんでした'); return null; }
+    hideFmtError();
+    return { fmt: 'custom', customParser: p };
+  }
+  hideFmtError();
+  return { fmt: val, customParser: null };
+}
+function showFmtError(msg) {
+  const el = document.getElementById('fmt-error');
+  el.textContent = msg; el.style.display = 'block';
+}
+function hideFmtError() {
+  document.getElementById('fmt-error').style.display = 'none';
 }
 
 function pad(n) { return String(n).padStart(2,'0'); }
@@ -351,17 +573,31 @@ function loadEntries(entries) {
   renderDashboard(entries);
 }
 
+function handleFile(file) {
+  const p = getCurrentParser();
+  if (!p) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    const entries = parseLog(ev.target.result, p.fmt, p.customParser);
+    if (entries.length === 0) {
+      showFmtError('ログを解析できませんでした。フォーマットを確認してください。');
+      return;
+    }
+    hideFmtError();
+    loadEntries(entries);
+  };
+  r.readAsText(file, 'utf-8');
+}
+
 document.getElementById('file-input').addEventListener('change',e=>{
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();r.onload=ev=>loadEntries(parseLog(ev.target.result));r.readAsText(f,'utf-8');
+  const f=e.target.files[0]; if(!f)return; handleFile(f);
 });
 const dz=document.getElementById('drop-zone');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
 dz.addEventListener('drop',e=>{
   e.preventDefault();dz.classList.remove('drag');
-  const f=e.dataTransfer.files[0];if(!f)return;
-  const r=new FileReader();r.onload=ev=>loadEntries(parseLog(ev.target.result));r.readAsText(f,'utf-8');
+  const f=e.dataTransfer.files[0]; if(!f)return; handleFile(f);
 });
 </script>
 </body>
