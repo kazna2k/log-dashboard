@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LOGSCOPE — Universal Log Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c10;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --surface3: #1e2530;
+    --border: #21272f;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --accent3: #a8ff78;
+    --warn: #ffb347;
+    --error: #ff4757;
+    --info: #00e5ff;
+    --debug: #7c8db0;
+    --text: #c9d1d9;
+    --text-dim: #6e7681;
+    --text-bright: #f0f6fc;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app { position: relative; z-index: 1; }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,12,16,0.85);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.15em;
+    color: var(--text-bright);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .header-stats {
+    display: flex;
+    gap: 24px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .header-stat span { color: var(--text-bright); font-weight: 500; }
+
+  /* ── MAIN LAYOUT ── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* ── DROP ZONE ── */
+  #drop-zone {
+    margin: 28px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: rgba(13,17,23,0.6);
+    position: relative;
+    overflow: hidden;
+  }
+  #drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: -1;
+  }
+  #drop-zone.drag-over {
+    border-color: transparent;
+    background: rgba(0,229,255,0.05);
+  }
+  #drop-zone.drag-over::before { opacity: 0.4; }
+  #drop-zone:hover { border-color: rgba(0,229,255,0.4); }
+
+  .drop-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    filter: grayscale(0.5);
+  }
+  .drop-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+  .drop-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+  }
+  .drop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .drop-btn:hover {
+    background: rgba(0,229,255,0.1);
+    box-shadow: 0 0 20px rgba(0,229,255,0.2);
+  }
+  #file-input { display: none; }
+
+  /* ── DASHBOARD ── */
+  #dashboard { display: none; padding: 0 28px 28px; }
+
+  /* File tabs */
+  .file-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+    overflow-x: auto;
+  }
+  .file-tab {
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .file-tab:hover { color: var(--text); }
+  .file-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .file-tab .tab-count {
+    background: var(--surface3);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+
+  /* KPI row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .kpi:hover { border-color: rgba(0,229,255,0.3); }
+  .kpi::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .kpi.total::after { background: var(--text-dim); }
+  .kpi.error::after { background: var(--error); }
+  .kpi.warn::after { background: var(--warn); }
+  .kpi.info::after { background: var(--info); }
+  .kpi.debug::after { background: var(--debug); }
+
+  .kpi-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .kpi-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-bright);
+    line-height: 1;
+  }
+  .kpi-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* Chart + details grid */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .panel-header .badge {
+    background: var(--surface3);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    color: var(--text);
+  }
+
+  /* Timeline */
+  .timeline-wrap {
+    padding: 16px;
+  }
+  canvas#timeline-chart {
+    width: 100%;
+    height: 140px;
+    display: block;
+  }
+
+  /* Format breakdown */
+  .format-list { padding: 12px 0; }
+  .format-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    transition: background 0.15s;
+    cursor: default;
+  }
+  .format-item:hover { background: var(--surface2); }
+  .format-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .format-name { flex: 1; font-size: 11px; color: var(--text); }
+  .format-bar-wrap {
+    width: 80px;
+    height: 4px;
+    background: var(--surface3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .format-bar { height: 100%; border-radius: 2px; }
+  .format-count {
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 40px;
+    text-align: right;
+  }
+
+  /* Controls row */
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    transition: border-color 0.2s;
+  }
+  .search-box:focus-within { border-color: rgba(0,229,255,0.5); }
+  .search-box input {
+    background: none;
+    border: none;
+    outline: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    width: 100%;
+  }
+  .search-box input::placeholder { color: var(--text-dim); }
+  .search-icon { color: var(--text-dim); font-size: 14px; }
+
+  .filter-btn {
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .filter-btn:hover, .filter-btn.active {
+    border-color: rgba(0,229,255,0.5);
+    color: var(--accent);
+    background: rgba(0,229,255,0.06);
+  }
+  .filter-btn.active.error { border-color: var(--error); color: var(--error); background: rgba(255,71,87,0.06); }
+  .filter-btn.active.warn  { border-color: var(--warn); color: var(--warn); background: rgba(255,179,71,0.06); }
+  .filter-btn.active.info  { border-color: var(--info); color: var(--info); background: rgba(0,229,255,0.06); }
+  .filter-btn.active.debug { border-color: var(--debug); color: var(--debug); background: rgba(124,141,176,0.06); }
+
+  /* Log table */
+  .log-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+
+  .log-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    white-space: nowrap;
+  }
+
+  .log-table tbody tr {
+    border-bottom: 1px solid rgba(33,39,47,0.5);
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .log-table tbody tr:hover { background: rgba(0,229,255,0.04); }
+  .log-table tbody tr.expanded { background: var(--surface2); }
+
+  .log-table td {
+    padding: 7px 14px;
+    vertical-align: top;
+    font-size: 11.5px;
+  }
+
+  .level-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .level-ERROR { background: rgba(255,71,87,0.15); color: var(--error); border: 1px solid rgba(255,71,87,0.3); }
+  .level-WARN  { background: rgba(255,179,71,0.15); color: var(--warn); border: 1px solid rgba(255,179,71,0.3); }
+  .level-WARNING { background: rgba(255,179,71,0.15); color: var(--warn); border: 1px solid rgba(255,179,71,0.3); }
+  .level-INFO  { background: rgba(0,229,255,0.1); color: var(--info); border: 1px solid rgba(0,229,255,0.2); }
+  .level-DEBUG { background: rgba(124,141,176,0.1); color: var(--debug); border: 1px solid rgba(124,141,176,0.2); }
+  .level-FATAL { background: rgba(255,71,87,0.25); color: #ff1f35; border: 1px solid rgba(255,71,87,0.5); }
+  .level-UNKNOWN { background: rgba(100,100,100,0.15); color: #888; border: 1px solid rgba(100,100,100,0.2); }
+
+  .td-time { color: var(--text-dim); white-space: nowrap; font-size: 10.5px; }
+  .td-source { color: var(--accent2); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .td-format {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--surface3);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .td-message {
+    color: var(--text);
+    max-width: 480px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Expanded row detail */
+  .detail-row td {
+    padding: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-box {
+    padding: 12px 16px 16px 16px;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px 24px;
+    margin-bottom: 10px;
+  }
+  .detail-field { }
+  .detail-key { font-size: 9px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px; }
+  .detail-val { font-size: 11.5px; color: var(--text-bright); word-break: break-all; }
+  .detail-raw {
+    margin-top: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .page-btns { display: flex; gap: 4px; }
+  .page-btn {
+    padding: 4px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .page-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .page-btn.active { background: rgba(0,229,255,0.1); border-color: var(--accent); color: var(--accent); }
+  .page-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* AI Analysis panel */
+  .ai-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .ai-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(0,229,255,0.05), transparent);
+  }
+  .ai-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent3);
+    box-shadow: 0 0 8px var(--accent3);
+    animation: pulse 1.5s infinite;
+  }
+  .ai-title {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    flex: 1;
+  }
+  .ai-run-btn {
+    padding: 5px 14px;
+    background: transparent;
+    border: 1px solid var(--accent3);
+    color: var(--accent3);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .ai-run-btn:hover { background: rgba(168,255,120,0.1); box-shadow: 0 0 12px rgba(168,255,120,0.2); }
+  .ai-run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ai-body { padding: 14px 16px; min-height: 60px; }
+  .ai-placeholder { color: var(--text-dim); font-size: 11.5px; line-height: 1.6; }
+  .ai-result { color: var(--text); font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+  .ai-thinking {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .ai-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent3);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  /* ── TIME RANGE FILTER ── */
+  .time-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .time-filter-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    margin-right: 4px;
+  }
+  .time-preset-btn {
+    padding: 4px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .time-preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .time-preset-btn.active {
+    background: rgba(0,229,255,0.1);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .time-sep {
+    color: var(--border);
+    font-size: 16px;
+    padding: 0 2px;
+  }
+  .time-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+    /* override browser datetime-local default */
+    color-scheme: dark;
+  }
+  .time-input:focus { border-color: rgba(0,229,255,0.5); }
+  .time-clear-btn {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid rgba(255,71,87,0.3);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(255,71,87,0.7);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .time-clear-btn:hover { border-color: var(--error); color: var(--error); background: rgba(255,71,87,0.08); }
+
+  .time-range-info {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .time-range-info span { color: var(--accent); }
+
+  /* Granularity selector */
+  .gran-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+  }
+  .gran-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .gran-btn {
+    padding: 3px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .gran-btn:hover { color: var(--accent); border-color: rgba(0,229,255,0.4); }
+  .gran-btn.active { background: rgba(0,229,255,0.1); border-color: var(--accent); color: var(--accent); }
+
+  /* Brush overlay on timeline */
+  #timeline-canvas-wrap { position: relative; padding: 16px; }
+  #timeline-brush {
+    position: absolute;
+    top: 16px;
+    height: calc(100% - 40px);
+    background: rgba(0,229,255,0.08);
+    border-left: 1px solid rgba(0,229,255,0.5);
+    border-right: 1px solid rgba(0,229,255,0.5);
+    pointer-events: none;
+    display: none;
+  }
+  #timeline-chart { cursor: crosshair; }
+
+  @media (max-width: 900px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+    .td-format, .td-source { display: none; }
+    .time-filter-bar { gap: 6px; }
+    .gran-group { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">
+      <div class="logo-dot"></div>
+      LOGSCOPE
+    </div>
+    <div class="header-stats">
+      <div>FILES&nbsp;<span id="hdr-files">0</span></div>
+      <div>LINES&nbsp;<span id="hdr-lines">0</span></div>
+      <div>FORMATS&nbsp;<span id="hdr-formats">0</span></div>
+      <div>ERRORS&nbsp;<span id="hdr-errors">0</span></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Drop zone -->
+    <div id="drop-zone">
+      <div class="drop-icon">📂</div>
+      <div class="drop-title">ログファイルをドロップ</div>
+      <div class="drop-sub">複数ファイル対応 · フォーマット自動判別 · .log .txt .json .csv など</div>
+      <button class="drop-btn" onclick="document.getElementById('file-input').click()">
+        ＋ ファイルを選択
+      </button>
+      <input type="file" id="file-input" multiple accept=".log,.txt,.json,.csv,.out,.trace,.gz">
+    </div>
+
+    <!-- Dashboard (hidden until files loaded) -->
+    <div id="dashboard">
+      <!-- File tabs -->
+      <div class="file-tabs" id="file-tabs"></div>
+
+      <!-- KPIs -->
+      <div class="kpi-row">
+        <div class="kpi total">
+          <div class="kpi-label">Total Lines</div>
+          <div class="kpi-value" id="kpi-total">0</div>
+          <div class="kpi-sub" id="kpi-total-sub">—</div>
+        </div>
+        <div class="kpi error">
+          <div class="kpi-label">ERROR / FATAL</div>
+          <div class="kpi-value" id="kpi-error">0</div>
+          <div class="kpi-sub" id="kpi-error-pct">0%</div>
+        </div>
+        <div class="kpi warn">
+          <div class="kpi-label">WARN</div>
+          <div class="kpi-value" id="kpi-warn">0</div>
+          <div class="kpi-sub" id="kpi-warn-pct">0%</div>
+        </div>
+        <div class="kpi info">
+          <div class="kpi-label">INFO</div>
+          <div class="kpi-value" id="kpi-info">0</div>
+          <div class="kpi-sub" id="kpi-info-pct">0%</div>
+        </div>
+        <div class="kpi debug">
+          <div class="kpi-label">DEBUG</div>
+          <div class="kpi-value" id="kpi-debug">0</div>
+          <div class="kpi-sub" id="kpi-debug-pct">0%</div>
+        </div>
+      </div>
+
+      <!-- AI Analysis -->
+      <div class="ai-panel">
+        <div class="ai-header">
+          <div class="ai-dot"></div>
+          <div class="ai-title">AI 自動分析</div>
+          <button class="ai-run-btn" id="ai-run-btn" onclick="runAiAnalysis()">▶ 分析実行</button>
+        </div>
+        <div class="ai-body">
+          <div class="ai-placeholder" id="ai-placeholder">ログを読み込んだ後「分析実行」を押すと、エラーパターン・異常検出・改善提案を自動生成します。</div>
+          <div class="ai-result" id="ai-result" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Time Range Filter Bar -->
+      <div class="time-filter-bar" id="time-filter-bar">
+        <span class="time-filter-label">⏱ 期間</span>
+        <button class="time-preset-btn active" id="preset-all"  onclick="setPreset('all')">全期間</button>
+        <button class="time-preset-btn" id="preset-1h"   onclick="setPreset('1h')">1時間</button>
+        <button class="time-preset-btn" id="preset-6h"   onclick="setPreset('6h')">6時間</button>
+        <button class="time-preset-btn" id="preset-24h"  onclick="setPreset('24h')">24時間</button>
+        <button class="time-preset-btn" id="preset-7d"   onclick="setPreset('7d')">7日間</button>
+        <span class="time-sep">|</span>
+        <input type="datetime-local" class="time-input" id="time-from" onchange="onManualTimeChange()">
+        <span style="color:var(--text-dim);font-size:10px">→</span>
+        <input type="datetime-local" class="time-input" id="time-to"   onchange="onManualTimeChange()">
+        <button class="time-clear-btn" onclick="clearTimeRange()">✕ リセット</button>
+        <div class="time-range-info" id="time-range-info">—</div>
+        <div class="gran-group">
+          <span class="gran-label">粒度</span>
+          <button class="gran-btn" id="gran-sec"  onclick="setGran('sec')">秒</button>
+          <button class="gran-btn" id="gran-min"  onclick="setGran('min')">分</button>
+          <button class="gran-btn active" id="gran-hour" onclick="setGran('hour')">時</button>
+          <button class="gran-btn" id="gran-day"  onclick="setGran('day')">日</button>
+          <button class="gran-btn" id="gran-week" onclick="setGran('week')">週</button>
+        </div>
+      </div>
+
+      <!-- Chart + formats -->
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <span>TIME DISTRIBUTION</span>
+            <span class="badge" id="timeline-badge">—</span>
+          </div>
+          <div id="timeline-canvas-wrap">
+            <div id="timeline-brush"></div>
+            <canvas id="timeline-chart"></canvas>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <span>DETECTED FORMATS</span>
+            <span class="badge" id="format-badge">0</span>
+          </div>
+          <div class="format-list" id="format-list"></div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="キーワード検索 / regex..." oninput="applyFilters()">
+        </div>
+        <button class="filter-btn" id="filter-all" onclick="setLevelFilter('ALL')">ALL</button>
+        <button class="filter-btn error" id="filter-error" onclick="setLevelFilter('ERROR')">ERROR</button>
+        <button class="filter-btn warn"  id="filter-warn"  onclick="setLevelFilter('WARN')">WARN</button>
+        <button class="filter-btn info"  id="filter-info"  onclick="setLevelFilter('INFO')">INFO</button>
+        <button class="filter-btn debug" id="filter-debug" onclick="setLevelFilter('DEBUG')">DEBUG</button>
+      </div>
+
+      <!-- Log table -->
+      <div class="log-table-wrap">
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>TIMESTAMP</th>
+              <th>LEVEL</th>
+              <th>SOURCE / LOGGER</th>
+              <th>FORMAT</th>
+              <th>MESSAGE</th>
+            </tr>
+          </thead>
+          <tbody id="log-tbody"></tbody>
+        </table>
+        <div class="pagination" id="pagination">
+          <div id="page-info">0 件</div>
+          <div class="page-btns" id="page-btns"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+// ─────────────────────────────────────────────
+// LOG FORMAT PARSERS
+// ─────────────────────────────────────────────
+const PARSERS = [
+  {
+    name: 'JSON',
+    color: '#00e5ff',
+    detect: line => { try { JSON.parse(line); return true; } catch(_e) { return false; } },
+    parse(line) {
+      const o = JSON.parse(line);
+      const level = (o.level || o.severity || o.log_level || o.lvl || o.status || 'UNKNOWN').toString().toUpperCase();
+      const msg = o.message || o.msg || o.log || o.text || o.body || JSON.stringify(o);
+      const ts = o.timestamp || o.time || o.t || o['@timestamp'] || o.date || null;
+      const src = o.logger || o.service || o.source || o.name || o.component || '';
+      return { level, message: msg, timestamp: ts, source: src, fields: o, raw: line };
+    }
+  },
+  {
+    name: 'Log4j / Java',
+    color: '#ff6b35',
+    pattern: /^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+(ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL|TRACE)\s+(?:\[([^\]]*)\])?\s*([^\s-][^\n]*)/i,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      return { level: m[2].toUpperCase(), timestamp: m[1], source: m[3]||'', message: m[4], fields: {}, raw: line };
+    }
+  },
+  {
+    name: 'Apache / Nginx',
+    color: '#a8ff78',
+    pattern: /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"([^"]+)"\s+(\d+)\s+(\S+)/,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      const code = parseInt(m[4]);
+      const level = code >= 500 ? 'ERROR' : code >= 400 ? 'WARN' : 'INFO';
+      return { level, timestamp: m[2], source: m[1], message: `${m[3]} → ${m[4]}`, fields: { ip: m[1], status: m[4], bytes: m[5] }, raw: line };
+    }
+  },
+  {
+    name: 'Syslog',
+    color: '#ffb347',
+    pattern: /^([A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^\s:]+)(?:\[(\d+)\])?:\s+(.+)/,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      const msg = m[5];
+      const level = /error|fail|critical/i.test(msg) ? 'ERROR' : /warn/i.test(msg) ? 'WARN' : 'INFO';
+      return { level, timestamp: m[1], source: `${m[3]}[${m[4]||'?'}]`, message: msg, fields: { host: m[2], pid: m[4] }, raw: line };
+    }
+  },
+  {
+    name: 'Python / Django',
+    color: '#7c8db0',
+    pattern: /^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:,\d+)?)\s+(ERROR|WARNING|INFO|DEBUG|CRITICAL)\s+([^\s]+)?\s*(.+)/i,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      return { level: m[2].toUpperCase().replace('WARNING','WARN').replace('CRITICAL','FATAL'), timestamp: m[1], source: m[3]||'', message: m[4], fields: {}, raw: line };
+    }
+  },
+  {
+    name: 'Kubernetes / Docker',
+    color: '#c084fc',
+    pattern: /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(stderr|stdout)\s+(.*)/i,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      const level = m[2]==='stderr' ? 'ERROR' : 'INFO';
+      return { level, timestamp: m[1], source: m[2], message: m[3], fields: {}, raw: line };
+    }
+  },
+  {
+    name: 'RFC 5424',
+    color: '#fb923c',
+    pattern: /^<(\d+)>1\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)/,
+    detect(l) { return this.pattern.test(l); },
+    parse(line) {
+      const m = line.match(this.pattern);
+      const pri = parseInt(m[1]);
+      const severity = pri % 8;
+      const lvlMap = ['FATAL','FATAL','FATAL','ERROR','WARN','INFO','INFO','DEBUG'];
+      return { level: lvlMap[severity]||'INFO', timestamp: m[2], source: `${m[4]}/${m[5]}`, message: m[7], fields: { host: m[3], proc: m[4] }, raw: line };
+    }
+  },
+  {
+    name: 'CSV',
+    color: '#34d399',
+    detect: l => (l.match(/,/g)||[]).length >= 3 && !l.startsWith('{') && !l.startsWith('<'),
+    parse(line) {
+      const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g,''));
+      const msg = cols.slice(-1)[0];
+      const levelWord = cols.find(c => /^(ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL)$/i.test(c));
+      return { level: levelWord ? levelWord.toUpperCase() : 'UNKNOWN', timestamp: cols[0], source: cols[1]||'', message: msg, fields: {}, raw: line };
+    }
+  },
+  {
+    name: 'Generic',
+    color: '#94a3b8',
+    detect: () => true,
+    parse(line) {
+      const levelM = line.match(/\b(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|CRITICAL)\b/i);
+      const tsM = line.match(/\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}/);
+      return {
+        level: levelM ? levelM[1].toUpperCase().replace('WARNING','WARN').replace('CRITICAL','FATAL') : 'UNKNOWN',
+        timestamp: tsM ? tsM[0] : null,
+        source: '',
+        message: line,
+        fields: {},
+        raw: line
+      };
+    }
+  }
+];
+
+function detectFormat(line) {
+  for (const p of PARSERS) {
+    if (p.detect(line)) return p;
+  }
+  return PARSERS[PARSERS.length-1];
+}
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let allLogs = [];        // all parsed entries across files
+let filteredLogs = [];
+let fileMap = {};        // filename → [entries]
+let currentFile = 'ALL';
+let currentLevel = 'ALL';
+let currentPage = 1;
+const PAGE_SIZE = 100;
+let expandedRow = null;
+
+// Time range state
+let timeFrom = null;   // Date | null
+let timeTo   = null;   // Date | null
+let currentGran = 'hour'; // sec | min | hour | day | week
+let currentPreset = 'all';
+
+// ─────────────────────────────────────────────
+// FILE LOADING
+// ─────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  loadFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', e => loadFiles([...e.target.files]));
+
+function loadFiles(files) {
+  const promises = files.map(f => new Promise(res => {
+    const reader = new FileReader();
+    reader.onload = e => res({ name: f.name, content: e.target.result });
+    reader.readAsText(f);
+  }));
+  Promise.all(promises).then(results => {
+    results.forEach(({ name, content }) => parseFile(name, content));
+    buildUI();
+  });
+}
+
+function parseFile(filename, content) {
+  const lines = content.split('\n').filter(l => l.trim());
+  const entries = [];
+  let idx = 0;
+
+  // Multi-line log grouping (stack traces)
+  let buffer = '';
+  const flush = () => {
+    if (!buffer.trim()) return;
+    const parser = detectFormat(buffer.split('\n')[0]);
+    try {
+      const entry = parser.parse(buffer);
+      entry.format = parser.name;
+      entry.formatColor = parser.color;
+      entry.file = filename;
+      entry.lineNo = idx;
+      entries.push(entry);
+    } catch(_e) {}
+    buffer = '';
+  };
+
+  for (const line of lines) {
+    // A new log entry starts: timestamp-like or level at start, or JSON object
+    const startsNew = /^[\d{<]/.test(line.trimStart()) || /^[A-Za-z]{3}\s+\d/.test(line) ||
+                      /^(ERROR|WARN|INFO|DEBUG|FATAL|TRACE)\b/i.test(line.trimStart());
+    if (startsNew && buffer) flush();
+    buffer += (buffer ? '\n' : '') + line;
+    idx++;
+  }
+  flush();
+
+  fileMap[filename] = entries;
+  allLogs = Object.values(fileMap).flat();
+}
+
+// ─────────────────────────────────────────────
+// BUILD UI
+// ─────────────────────────────────────────────
+function buildUI() {
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  buildTabs();
+  applyFilters();
+  updateHeaderStats();
+}
+
+function buildTabs() {
+  const tabs = document.getElementById('file-tabs');
+  const files = Object.keys(fileMap);
+  const total = allLogs.length;
+
+  tabs.innerHTML = `<div class="file-tab ${currentFile==='ALL'?'active':''}" onclick="switchFile('ALL')">ALL <span class="tab-count">${total}</span></div>`;
+  files.forEach(f => {
+    const cnt = fileMap[f].length;
+    tabs.innerHTML += `<div class="file-tab ${currentFile===f?'active':''}" onclick="switchFile('${f}')">
+      ${f.length > 20 ? '…'+f.slice(-18) : f} <span class="tab-count">${cnt}</span>
+    </div>`;
+  });
+}
+
+function switchFile(name) {
+  currentFile = name;
+  currentPage = 1;
+  buildTabs();
+  applyFilters();
+}
+
+// ─────────────────────────────────────────────
+// TIME RANGE FILTER
+// ─────────────────────────────────────────────
+const GRAN_CONFIG = {
+  sec:  { ms: 1000,        fmt: d => d.toLocaleTimeString('ja-JP'), label: '秒' },
+  min:  { ms: 60000,       fmt: d => d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), label: '分' },
+  hour: { ms: 3600000,     fmt: d => d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), label: '時間' },
+  day:  { ms: 86400000,    fmt: d => d.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'}), label: '日' },
+  week: { ms: 604800000,   fmt: d => {
+    const e = new Date(d); e.setDate(e.getDate()+6);
+    return d.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'})+'–'+e.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'});
+  }, label: '週' }
+};
+
+function setPreset(preset) {
+  currentPreset = preset;
+  document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+  var _pb = document.getElementById('preset-'+preset); if (_pb) _pb.classList.add('active');
+
+  if (preset === 'all') {
+    timeFrom = null; timeTo = null;
+    document.getElementById('time-from').value = '';
+    document.getElementById('time-to').value = '';
+  } else {
+    const now = new Date();
+    const msMap = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
+    timeTo   = now;
+    timeFrom = new Date(now - msMap[preset]);
+    document.getElementById('time-from').value = toLocalInput(timeFrom);
+    document.getElementById('time-to').value   = toLocalInput(timeTo);
+  }
+
+  // Auto-suggest granularity based on preset
+  const autoGran = { all: null, '1h': 'min', '6h': 'min', '24h': 'hour', '7d': 'day' };
+  if (autoGran[preset]) setGran(autoGran[preset], true);
+
+  applyFilters();
+}
+
+function onManualTimeChange() {
+  const fv = document.getElementById('time-from').value;
+  const tv = document.getElementById('time-to').value;
+  timeFrom = fv ? new Date(fv) : null;
+  timeTo   = tv ? new Date(tv) : null;
+  currentPreset = 'custom';
+  document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+  applyFilters();
+}
+
+function clearTimeRange() {
+  timeFrom = null; timeTo = null; currentPreset = 'all';
+  document.getElementById('time-from').value = '';
+  document.getElementById('time-to').value = '';
+  document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('preset-all').classList.add('active');
+  applyFilters();
+}
+
+function setGran(gran, silent = false) {
+  currentGran = gran;
+  document.querySelectorAll('.gran-btn').forEach(b => b.classList.remove('active'));
+  var _gb = document.getElementById('gran-'+gran); if (_gb) _gb.classList.add('active');
+  if (!silent) {
+    const base = currentFile === 'ALL' ? allLogs : (fileMap[currentFile] || []);
+    renderTimeline(base);
+  }
+}
+
+function toLocalInput(d) {
+  if (!d) return '';
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function updateTimeRangeInfo(logs) {
+  const info = document.getElementById('time-range-info');
+  const timed = logs.filter(e => e.timestamp && !isNaN(new Date(e.timestamp)));
+  if (!timed.length) { info.textContent = '—'; return; }
+  if (timeFrom || timeTo) {
+    const cnt = filteredLogs.length;
+    const total = (currentFile === 'ALL' ? allLogs : fileMap[currentFile]||[]).length;
+    info.innerHTML = `表示中 <span>${cnt.toLocaleString()}</span> / ${total.toLocaleString()} 件`;
+  } else {
+    const sorted = timed.map(e => new Date(e.timestamp).getTime()).sort((a,b)=>a-b);
+    const span = sorted[sorted.length-1] - sorted[0];
+    const h = Math.floor(span/3600000), m = Math.floor((span%3600000)/60000);
+    info.innerHTML = `スパン <span>${h>0?h+'h ':''}${m}m</span>`;
+  }
+}
+
+function setLevelFilter(level) {
+  currentLevel = level;
+  currentPage = 1;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  var _fb = document.getElementById('filter-' + level.toLowerCase()); if (_fb) _fb.classList.add('active');
+  applyFilters();
+}
+
+
+function applyFilters() {
+  const search = document.getElementById('search-input').value.trim();
+  const base = currentFile === 'ALL' ? allLogs : (fileMap[currentFile] || []);
+  let re = null;
+  try { if (search) re = new RegExp(search, 'i'); } catch(_e) { re = null; }
+
+  filteredLogs = base.filter(e => {
+    // Level filter
+    if (currentLevel !== 'ALL') {
+      const lv = e.level;
+      if (currentLevel === 'ERROR' && !['ERROR','FATAL'].includes(lv)) return false;
+      if (currentLevel === 'WARN'  && !['WARN','WARNING'].includes(lv)) return false;
+      if (currentLevel === 'INFO'  && lv !== 'INFO') return false;
+      if (currentLevel === 'DEBUG' && lv !== 'DEBUG') return false;
+    }
+    // Time range filter
+    if (timeFrom || timeTo) {
+      const ts = e.timestamp ? new Date(e.timestamp) : null;
+      if (!ts || isNaN(ts)) return false;
+      if (timeFrom && ts < timeFrom) return false;
+      if (timeTo   && ts > timeTo)   return false;
+    }
+    // Search filter
+    if (re) return re.test(e.raw);
+    return true;
+  });
+
+  currentPage = 1;
+  updateKPIs(filteredLogs);
+  renderTable();
+  renderFormats(filteredLogs);
+  renderTimeline(base);
+  updateTimeRangeInfo(base);
+}
+
+// ─────────────────────────────────────────────
+// KPIs
+// ─────────────────────────────────────────────
+function updateKPIs(logs) {
+  const total = logs.length;
+  const errors = logs.filter(e => ['ERROR','FATAL'].includes(e.level)).length;
+  const warns  = logs.filter(e => ['WARN','WARNING'].includes(e.level)).length;
+  const infos  = logs.filter(e => e.level === 'INFO').length;
+  const debugs = logs.filter(e => e.level === 'DEBUG').length;
+  const files  = new Set(logs.map(e => e.file)).size;
+
+  document.getElementById('kpi-total').textContent = total.toLocaleString();
+  document.getElementById('kpi-total-sub').textContent = `${files} ファイル`;
+  document.getElementById('kpi-error').textContent = errors.toLocaleString();
+  document.getElementById('kpi-error-pct').textContent = total ? (errors/total*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-warn').textContent  = warns.toLocaleString();
+  document.getElementById('kpi-warn-pct').textContent  = total ? (warns/total*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-info').textContent  = infos.toLocaleString();
+  document.getElementById('kpi-info-pct').textContent  = total ? (infos/total*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-debug').textContent = debugs.toLocaleString();
+  document.getElementById('kpi-debug-pct').textContent = total ? (debugs/total*100).toFixed(1)+'%' : '—';
+}
+
+function updateHeaderStats() {
+  document.getElementById('hdr-files').textContent = Object.keys(fileMap).length;
+  document.getElementById('hdr-lines').textContent = allLogs.length.toLocaleString();
+  const fmts = new Set(allLogs.map(e => e.format));
+  document.getElementById('hdr-formats').textContent = fmts.size;
+  document.getElementById('hdr-errors').textContent = allLogs.filter(e => ['ERROR','FATAL'].includes(e.level)).length;
+}
+
+// ─────────────────────────────────────────────
+// FORMAT LIST
+// ─────────────────────────────────────────────
+function renderFormats(logs) {
+  const counts = {};
+  logs.forEach(e => { counts[e.format] = (counts[e.format]||0)+1; });
+  const entries = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  const max = (entries[0] && entries[0][1]) || 1;
+  const parser4color = name => PARSERS.find(p => p.name === name) || { color: '#666' };
+
+  document.getElementById('format-badge').textContent = entries.length;
+  document.getElementById('format-list').innerHTML = entries.map(([name, cnt]) => `
+    <div class="format-item">
+      <div class="format-dot" style="background:${parser4color(name).color}"></div>
+      <div class="format-name">${name}</div>
+      <div class="format-bar-wrap"><div class="format-bar" style="width:${cnt/max*100}%;background:${parser4color(name).color}"></div></div>
+      <div class="format-count">${cnt}</div>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────
+// TIMELINE CANVAS CHART (with brush + granularity)
+// ─────────────────────────────────────────────
+
+// Brush drag state
+let brushing = false, brushStartX = 0, brushEndX = 0;
+let canvasDataRange = { minT: 0, maxT: 0, padL: 0, cw: 0 }; // for coordinate → time mapping
+
+function renderTimeline(logs) {
+  const canvas = document.getElementById('timeline-chart');
+  const wrap = document.getElementById('timeline-canvas-wrap');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth - 32;
+  const h = 160;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const timestamps = logs.map(e => e.timestamp).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
+  if (timestamps.length < 2) {
+    ctx.fillStyle = '#6e7681';
+    ctx.font = '11px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('タイムスタンプが検出されませんでした', w/2, h/2);
+    document.getElementById('timeline-badge').textContent = '—';
+    return;
+  }
+
+  timestamps.sort((a,b) => a-b);
+  const dataMinT = timestamps[0].getTime();
+  const dataMaxT = timestamps[timestamps.length-1].getTime();
+
+  // Apply view range (time filter constrains zoom, but always show full data range as backdrop)
+  const viewMinT = timeFrom ? Math.max(timeFrom.getTime(), dataMinT) : dataMinT;
+  const viewMaxT = timeTo   ? Math.min(timeTo.getTime(),   dataMaxT) : dataMaxT;
+  const span = Math.max(viewMaxT - viewMinT, 1);
+
+  // Determine bin size from granularity
+  const granMs = GRAN_CONFIG[currentGran].ms;
+  const maxBins = Math.min(120, Math.max(8, Math.floor(w / 10)));
+  const autoMs = span / maxBins;
+  const binMs = Math.max(granMs, autoMs);
+  const BINS = Math.ceil(span / binMs) || 1;
+
+  const bins      = Array(BINS).fill(0);
+  const errorBins = Array(BINS).fill(0);
+  const warnBins  = Array(BINS).fill(0);
+
+  logs.forEach(e => {
+    if (!e.timestamp) return;
+    const d = new Date(e.timestamp).getTime();
+    if (d < viewMinT || d > viewMaxT) return;
+    const bi = Math.min(BINS-1, Math.floor((d - viewMinT) / binMs));
+    bins[bi]++;
+    if (['ERROR','FATAL'].includes(e.level)) errorBins[bi]++;
+    else if (['WARN','WARNING'].includes(e.level)) warnBins[bi]++;
+  });
+
+  const maxBin = Math.max(...bins, 1);
+  const pad = { l: 6, r: 6, t: 12, b: 28 };
+  const cw = w - pad.l - pad.r;
+  const ch = h - pad.t - pad.b;
+  const bw = cw / BINS;
+
+  // Store for brush coordinate mapping
+  canvasDataRange = { minT: viewMinT, maxT: viewMaxT, padL: pad.l, cw, binMs, BINS };
+
+  // Draw full-period backdrop shade if zoomed in
+  if (timeFrom || timeTo) {
+    ctx.fillStyle = 'rgba(0,229,255,0.02)';
+    ctx.fillRect(pad.l, pad.t, cw, ch);
+  }
+
+  // Draw bars
+  bins.forEach((cnt, i) => {
+    if (!cnt) return;
+    const bh = (cnt / maxBin) * ch;
+    const x = pad.l + i * bw;
+    const y = pad.t + ch - bh;
+
+    ctx.fillStyle = 'rgba(0,229,255,0.13)';
+    ctx.fillRect(x+0.5, y, bw-1, bh);
+
+    if (warnBins[i]) {
+      const wh = (warnBins[i] / cnt) * bh;
+      ctx.fillStyle = 'rgba(255,179,71,0.45)';
+      ctx.fillRect(x+0.5, pad.t+ch-wh, bw-1, wh);
+    }
+    if (errorBins[i]) {
+      const eh = (errorBins[i] / cnt) * bh;
+      ctx.fillStyle = 'rgba(255,71,87,0.65)';
+      ctx.fillRect(x+0.5, y, bw-1, eh);
+    }
+
+    // Count label on tallest bars
+    if (cnt > 0 && bh > 18 && bw > 16) {
+      ctx.fillStyle = 'rgba(200,210,220,0.5)';
+      ctx.font = `8px JetBrains Mono, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(cnt > 999 ? Math.round(cnt/1000)+'k' : cnt, x + bw/2, y - 2);
+    }
+  });
+
+  // Baseline
+  ctx.strokeStyle = '#21272f';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t + ch);
+  ctx.lineTo(w - pad.r, pad.t + ch);
+  ctx.stroke();
+
+  // Active time range highlight markers
+  if (timeFrom || timeTo) {
+    const fromX = timeFrom ? pad.l + ((Math.max(timeFrom.getTime(), viewMinT) - viewMinT) / span * cw) : pad.l;
+    const toX   = timeTo   ? pad.l + ((Math.min(timeTo.getTime(),   viewMaxT) - viewMinT) / span * cw) : pad.l + cw;
+    ctx.strokeStyle = 'rgba(0,229,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3,3]);
+    [fromX, toX].forEach(x => {
+      ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t+ch); ctx.stroke();
+    });
+    ctx.fillStyle = 'rgba(0,229,255,0.07)';
+    ctx.fillRect(fromX, pad.t, toX-fromX, ch);
+    ctx.setLineDash([]);
+  }
+
+  // X axis labels
+  ctx.fillStyle = '#6e7681';
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.textAlign = 'center';
+  const labelFmt = GRAN_CONFIG[currentGran].fmt;
+  const labelCount = Math.min(6, BINS);
+  for (let i = 0; i <= labelCount; i++) {
+    const f = i / labelCount;
+    const x = pad.l + f * cw;
+    const t = viewMinT + f * span;
+    ctx.fillText(labelFmt(new Date(t)), x, h - 6);
+  }
+
+  // Granularity label top-right
+  ctx.fillStyle = '#3a4555';
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`/ ${GRAN_CONFIG[currentGran].label}`, w - pad.r, pad.t + 10);
+
+  document.getElementById('timeline-badge').textContent = `${timestamps.length.toLocaleString()} entries`;
+}
+
+// ── Brush interaction on timeline canvas ──
+(function setupBrush() {
+  const canvas = document.getElementById('timeline-chart');
+
+  function xToTime(x) {
+    const rect = canvas.getBoundingClientRect();
+    const relX = x - rect.left;
+    const { minT, maxT, padL, cw } = canvasDataRange;
+    const f = Math.max(0, Math.min(1, (relX - padL) / cw));
+    return new Date(minT + f * (maxT - minT));
+  }
+
+  function updateBrushEl(x1, x2) {
+    const brush = document.getElementById('timeline-brush');
+    const rect = canvas.getBoundingClientRect();
+    const wrapRect = canvas.parentElement.getBoundingClientRect();
+    const left  = Math.min(x1, x2) - wrapRect.left;
+    const width = Math.abs(x2 - x1);
+    brush.style.left   = left + 'px';
+    brush.style.width  = width + 'px';
+    brush.style.display = width > 2 ? 'block' : 'none';
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    brushing = true;
+    brushStartX = e.clientX;
+    brushEndX   = e.clientX;
+    updateBrushEl(brushStartX, brushEndX);
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!brushing) return;
+    brushEndX = e.clientX;
+    updateBrushEl(brushStartX, brushEndX);
+  });
+
+  window.addEventListener('mouseup', e => {
+    if (!brushing) return;
+    brushing = false;
+    document.getElementById('timeline-brush').style.display = 'none';
+    const dx = Math.abs(brushEndX - brushStartX);
+    if (dx < 5) return; // too small — treat as click, ignore
+
+    const t1 = xToTime(Math.min(brushStartX, brushEndX));
+    const t2 = xToTime(Math.max(brushStartX, brushEndX));
+    timeFrom = t1; timeTo = t2;
+    currentPreset = 'custom';
+    document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('time-from').value = toLocalInput(t1);
+    document.getElementById('time-to').value   = toLocalInput(t2);
+    // auto granularity based on selected span
+    const spanMs = t2 - t1;
+    if      (spanMs < 120000)   setGran('sec', true);
+    else if (spanMs < 7200000)  setGran('min', true);
+    else if (spanMs < 172800000)setGran('hour', true);
+    else if (spanMs < 5184000000)setGran('day', true);
+    else                         setGran('week', true);
+    applyFilters();
+  });
+
+  // Touch support
+  canvas.addEventListener('touchstart', e => {
+    brushing = true; brushStartX = e.touches[0].clientX; brushEndX = brushStartX;
+  }, { passive: true });
+  canvas.addEventListener('touchmove', e => {
+    if (!brushing) return; brushEndX = e.touches[0].clientX; updateBrushEl(brushStartX, brushEndX);
+  }, { passive: true });
+  canvas.addEventListener('touchend', () => {
+    const ev = new MouseEvent('mouseup'); window.dispatchEvent(ev);
+  });
+})();
+
+
+
+// ─────────────────────────────────────────────
+// LOG TABLE
+// ─────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('log-tbody');
+  const totalFiltered = filteredLogs.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  currentPage = Math.min(currentPage, totalPages);
+
+  const start = (currentPage-1)*PAGE_SIZE;
+  const slice = filteredLogs.slice(start, start+PAGE_SIZE);
+
+  if (slice.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">一致するログが見つかりません</div></td></tr>`;
+  } else {
+    tbody.innerHTML = slice.map((e,i) => {
+      const no = start + i + 1;
+      const ts = e.timestamp ? String(e.timestamp).replace('T',' ').replace(/\.\d+Z?/,'') : '—';
+      const lvl = e.level || 'UNKNOWN';
+      const normLvl = ['WARNING'].includes(lvl) ? 'WARN' : lvl;
+      const msg = escHtml(e.message || e.raw || '');
+      const src = escHtml(e.source || '');
+      return `<tr onclick="toggleDetail(${no-1}, this)" data-idx="${no-1}">
+        <td style="color:var(--text-dim);font-size:10px">${no}</td>
+        <td class="td-time">${ts}</td>
+        <td><span class="level-badge level-${normLvl}">${lvl}</span></td>
+        <td class="td-source" title="${src}">${src||'—'}</td>
+        <td><span class="td-format" style="color:${e.formatColor}">${e.format}</span></td>
+        <td class="td-message" title="${msg}">${msg}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Pagination
+  document.getElementById('page-info').textContent = `${totalFiltered.toLocaleString()} 件 (${start+1}–${Math.min(start+PAGE_SIZE,totalFiltered)})`;
+  const btns = document.getElementById('page-btns');
+  btns.innerHTML = '';
+
+  const prev = document.createElement('button');
+  prev.className = 'page-btn';
+  prev.textContent = '←';
+  prev.disabled = currentPage <= 1;
+  prev.onclick = () => { currentPage--; renderTable(); };
+  btns.appendChild(prev);
+
+  const pageRange = getPageRange(currentPage, totalPages);
+  pageRange.forEach(p => {
+    if (p === '…') {
+      const el = document.createElement('span');
+      el.textContent = '…'; el.style.color = 'var(--text-dim)'; el.style.padding = '4px 6px';
+      btns.appendChild(el);
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'page-btn' + (p===currentPage?' active':'');
+      btn.textContent = p;
+      btn.onclick = () => { currentPage = p; renderTable(); };
+      btns.appendChild(btn);
+    }
+  });
+
+  const next = document.createElement('button');
+  next.className = 'page-btn';
+  next.textContent = '→';
+  next.disabled = currentPage >= totalPages;
+  next.onclick = () => { currentPage++; renderTable(); };
+  btns.appendChild(next);
+}
+
+function getPageRange(cur, total) {
+  if (total <= 7) return Array.from({length:total},(_,i)=>i+1);
+  if (cur <= 4) return [1,2,3,4,5,'…',total];
+  if (cur >= total-3) return [1,'…',total-4,total-3,total-2,total-1,total];
+  return [1,'…',cur-1,cur,cur+1,'…',total];
+}
+
+function toggleDetail(idx, row) {
+  const existing = document.querySelector('.detail-row');
+  if (existing) { existing.remove(); if (expandedRow === idx) { expandedRow=null; return; } }
+  expandedRow = idx;
+  const e = filteredLogs[idx];
+  const fields = { ...e.fields };
+  delete fields.message; delete fields.msg; delete fields.level;
+  const fieldKeys = Object.keys(fields).filter(k => fields[k] !== undefined && fields[k] !== '');
+  const fieldHtml = fieldKeys.length ?
+    `<div class="detail-grid">${fieldKeys.map(k =>
+      `<div class="detail-field"><div class="detail-key">${escHtml(k)}</div><div class="detail-val">${escHtml(String(fields[k]))}</div></div>`
+    ).join('')}</div>` : '';
+
+  const tr = document.createElement('tr');
+  tr.className = 'detail-row';
+  tr.innerHTML = `<td colspan="6"><div class="detail-box">
+    ${fieldHtml}
+    <div class="detail-key" style="margin-bottom:4px">RAW</div>
+    <div class="detail-raw">${escHtml(e.raw)}</div>
+  </div></td>`;
+  row.insertAdjacentElement('afterend', tr);
+  row.classList.add('expanded');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────
+// AI ANALYSIS
+// ─────────────────────────────────────────────
+async function runAiAnalysis() {
+  const btn = document.getElementById('ai-run-btn');
+  const result = document.getElementById('ai-result');
+  const placeholder = document.getElementById('ai-placeholder');
+
+  btn.disabled = true;
+  btn.textContent = '分析中...';
+  placeholder.style.display = 'none';
+  result.style.display = 'block';
+  result.innerHTML = `<div class="ai-thinking"><div class="ai-spinner"></div> ログを解析しています...</div>`;
+
+  // Build summary for AI
+  const base = currentFile === 'ALL' ? allLogs : (fileMap[currentFile] || []);
+  const total = base.length;
+  const errors = base.filter(e => ['ERROR','FATAL'].includes(e.level));
+  const warns  = base.filter(e => ['WARN','WARNING'].includes(e.level));
+  const formats = [...new Set(base.map(e => e.format))];
+
+  // Sample error messages (up to 20)
+  const errorSamples = errors.slice(0, 20).map(e => `[${e.level}] ${e.message || e.raw}`).join('\n');
+  const warnSamples  = warns.slice(0, 10).map(e => `[WARN] ${e.message || e.raw}`).join('\n');
+
+  const prompt = `以下のログデータを分析してください。日本語で回答してください。
+
+【ログ統計】
+- 総行数: ${total}
+- エラー/FATAL: ${errors.length} (${total?(errors.length/total*100).toFixed(1):0}%)
+- 警告: ${warns.length} (${total?(warns.length/total*100).toFixed(1):0}%)
+- 検出されたフォーマット: ${formats.join(', ')}
+
+【エラーサンプル (最大20件)】
+${errorSamples || 'なし'}
+
+【警告サンプル (最大10件)】
+${warnSamples || 'なし'}
+
+以下の観点で簡潔に分析してください（各セクション2-4行程度）:
+1. 🔴 主要なエラーパターンと考えられる原因
+2. 🟡 注意が必要な警告
+3. 💡 改善・対応の提案
+4. 📊 全体的なシステム状態の評価`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await resp.json();
+    const text = (data.content && data.content.map(c => c.text||'').join('')) || 'レスポンスを取得できませんでした。';
+    result.textContent = text;
+  } catch (err) {
+    result.innerHTML = `<span style="color:var(--error)">AI分析エラー: ${err.message}</span>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ 再分析';
+}
+
+// Init
+setLevelFilter('ALL');
+setGran('hour', true);
+
+}); // DOMContentLoaded
+</script>
+</body>
+</html>
