@@ -1009,6 +1009,56 @@ function detectFormat(line) {
 }
 
 // ─────────────────────────────────────────────
+// ROBUST TIMESTAMP NORMALIZER
+// Converts any detected timestamp string to a Date object.
+// Returns null if unparseable.
+// ─────────────────────────────────────────────
+function normalizeTimestamp(raw) {
+  if (!raw) return null;
+  // Already a number (epoch ms)
+  if (typeof raw === 'number') return new Date(raw);
+
+  const s = String(raw).trim();
+
+  // 1. ISO 8601 / RFC 3339  (2024-01-05T12:34:56Z, 2024-01-05 12:34:56.123+09:00)
+  //    Also handles Python comma ms: 2024-01-05 12:34:56,789
+  const isoLike = s.replace(',', '.');          // comma → dot for ms
+  const d1 = new Date(isoLike);
+  if (!isNaN(d1)) return d1;
+
+  // 2. Apache / Nginx  05/Jan/2024:12:34:56 +0900
+  const apacheM = s.match(/^(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s*([+-]\d{4})?/);
+  if (apacheM) {
+    const months = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const tzOffset = apacheM[7] ? (parseInt(apacheM[7].slice(0,3))*60 + parseInt(apacheM[7].slice(0,1)+''+apacheM[7].slice(3))%60) : 0;
+    const utc = Date.UTC(+apacheM[3], months[apacheM[2]], +apacheM[1], +apacheM[4], +apacheM[5], +apacheM[6]);
+    return new Date(utc - tzOffset*60000);
+  }
+
+  // 3. Syslog  Jan  5 12:34:56  (no year — use current year)
+  const syslogM = s.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (syslogM) {
+    const months = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const year = new Date().getFullYear();
+    return new Date(year, months[syslogM[1]], +syslogM[2], +syslogM[3], +syslogM[4], +syslogM[5]);
+  }
+
+  // 4. US style  01/05/2024 12:34:56
+  const usM = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (usM) return new Date(+usM[3], +usM[1]-1, +usM[2], +usM[4], +usM[5], +usM[6]);
+
+  // 5. Epoch seconds (10 digits) or ms (13 digits)
+  if (/^\d{10}$/.test(s)) return new Date(parseInt(s) * 1000);
+  if (/^\d{13}$/.test(s)) return new Date(parseInt(s));
+
+  // 6. Last-ditch: let the browser try (handles many locale strings)
+  const d2 = new Date(s);
+  if (!isNaN(d2)) return d2;
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────
 let allLogs = [];        // all parsed entries across files
@@ -1069,6 +1119,8 @@ function parseFile(filename, content) {
       entry.formatColor = parser.color;
       entry.file = filename;
       entry.lineNo = idx;
+      // Normalize timestamp to a real Date (stored alongside raw string)
+      entry.tsDate = normalizeTimestamp(entry.timestamp);
       entries.push(entry);
     } catch(_e) {}
     buffer = '';
@@ -1197,14 +1249,14 @@ function toLocalInput(d) {
 
 function updateTimeRangeInfo(logs) {
   const info = document.getElementById('time-range-info');
-  const timed = logs.filter(e => e.timestamp && !isNaN(new Date(e.timestamp)));
+  const timed = logs.filter(e => e.tsDate && !isNaN(e.tsDate));
   if (!timed.length) { info.textContent = '—'; return; }
   if (timeFrom || timeTo) {
     const cnt = filteredLogs.length;
     const total = (currentFile === 'ALL' ? allLogs : fileMap[currentFile]||[]).length;
     info.innerHTML = `表示中 <span>${cnt.toLocaleString()}</span> / ${total.toLocaleString()} 件`;
   } else {
-    const sorted = timed.map(e => new Date(e.timestamp).getTime()).sort((a,b)=>a-b);
+    const sorted = timed.map(e => e.tsDate.getTime()).sort((a,b)=>a-b);
     const span = sorted[sorted.length-1] - sorted[0];
     const h = Math.floor(span/3600000), m = Math.floor((span%3600000)/60000);
     info.innerHTML = `スパン <span>${h>0?h+'h ':''}${m}m</span>`;
@@ -1224,7 +1276,12 @@ function applyFilters() {
   const search = document.getElementById('search-input').value.trim();
   const base = currentFile === 'ALL' ? allLogs : (fileMap[currentFile] || []);
   let re = null;
-  try { if (search) re = new RegExp(search, 'i'); } catch(_e) { re = null; }
+  if (search) {
+    try { re = new RegExp(search, 'i'); } catch(_e) {
+      // Invalid regex — fall back to plain substring match
+      re = { test: s => s.includes(search) };
+    }
+  }
 
   filteredLogs = base.filter(e => {
     // Level filter
@@ -1235,15 +1292,18 @@ function applyFilters() {
       if (currentLevel === 'INFO'  && lv !== 'INFO') return false;
       if (currentLevel === 'DEBUG' && lv !== 'DEBUG') return false;
     }
-    // Time range filter
+    // Time range filter — use pre-normalized tsDate
     if (timeFrom || timeTo) {
-      const ts = e.timestamp ? new Date(e.timestamp) : null;
-      if (!ts || isNaN(ts)) return false;
+      const ts = e.tsDate;
+      if (!ts) return false;
       if (timeFrom && ts < timeFrom) return false;
       if (timeTo   && ts > timeTo)   return false;
     }
-    // Search filter
-    if (re) return re.test(e.raw);
+    // Search filter — match against raw line + message + source (AND with above)
+    if (re) {
+      const haystack = [e.raw, e.message, e.source, e.timestamp].filter(Boolean).join(' ');
+      if (!re.test(haystack)) return false;
+    }
     return true;
   });
 
@@ -1328,7 +1388,7 @@ function renderTimeline(logs) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
 
-  const timestamps = logs.map(e => e.timestamp).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
+  const timestamps = logs.map(e => e.tsDate).filter(d => d && !isNaN(d));
   if (timestamps.length < 2) {
     ctx.fillStyle = '#6e7681';
     ctx.font = '11px JetBrains Mono, monospace';
@@ -1359,8 +1419,8 @@ function renderTimeline(logs) {
   const warnBins  = Array(BINS).fill(0);
 
   logs.forEach(e => {
-    if (!e.timestamp) return;
-    const d = new Date(e.timestamp).getTime();
+    if (!e.tsDate) return;
+    const d = e.tsDate.getTime();
     if (d < viewMinT || d > viewMaxT) return;
     const bi = Math.min(BINS-1, Math.floor((d - viewMinT) / binMs));
     bins[bi]++;
