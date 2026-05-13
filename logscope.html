@@ -1137,37 +1137,112 @@ function loadFiles(files) {
 }
 
 function parseFile(filename, content) {
-  const lines = content.split('\n').filter(l => l.trim());
+  const rawLines = content.split('\n');
   const entries = [];
-  let idx = 0;
+  let lineNo = 0;
 
-  // Multi-line log grouping (stack traces)
-  let buffer = '';
-  const flush = () => {
-    if (!buffer.trim()) return;
-    const parser = detectFormat(buffer.split('\n')[0]);
-    try {
-      const entry = parser.parse(buffer);
-      entry.format = parser.name;
-      entry.formatColor = parser.color;
-      entry.file = filename;
-      entry.lineNo = idx;
-      // Normalize timestamp to a real Date (stored alongside raw string)
-      entry.tsDate = normalizeTimestamp(entry.timestamp);
-      entries.push(entry);
-    } catch(_e) {}
-    buffer = '';
-  };
-
-  for (const line of lines) {
-    // A new log entry starts: timestamp-like or level at start, or JSON object
-    const startsNew = /^[\d{<]/.test(line.trimStart()) || /^[A-Za-z]{3}\s+\d/.test(line) ||
-                      /^(ERROR|WARN|INFO|DEBUG|FATAL|TRACE)\b/i.test(line.trimStart());
-    if (startsNew && buffer) flush();
-    buffer += (buffer ? '\n' : '') + line;
-    idx++;
+  // ── ヘッダー・コメント行の判定 ──
+  // #, *, =, -, // で始まる行、または空行はスキップ
+  function isHeaderOrComment(line) {
+    return /^(\s*)(#|\*|=|-{2,}|\/\/)/.test(line);
   }
-  flush();
+
+  // ── 新エントリ開始行の判定 ──
+  // タイムスタンプ・JSONオブジェクト・ログレベル・Syslog月名 etc. で始まる行
+  function isNewEntry(line) {
+    const t = line.trimStart();
+    if (!t) return false;
+    // ISO / YYYY-MM-DD / epoch like
+    if (/^\d{4}-\d{2}-\d{2}/.test(t)) return true;
+    // JSON object
+    if (t.startsWith('{')) return true;
+    // RFC 5424: <priority>
+    if (/^<\d+>/.test(t)) return true;
+    // Apache / Nginx combined log (IP address at start)
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(t)) return true;
+    // Syslog: "Jan  5 12:34:56"
+    if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d/i.test(t)) return true;
+    // Level word at very start (some formats)
+    if (/^(ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL|TRACE|CRITICAL)\b/i.test(t)) return true;
+    // Kubernetes/Docker: ISO8601T + stderr/stdout
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(t)) return true;
+    // US date style
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(t)) return true;
+    return false;
+  }
+
+  // ── スタックトレース継続行の判定 ──
+  // インデントあり・"at " / "Caused by:" / "..." で始まる行
+  function isContinuation(line) {
+    return /^(\s+at\s|\s+Caused by:|\s+\.{3}\s+\d|\t)/.test(line) ||
+           (line.startsWith('  ') && !isNewEntry(line));
+  }
+
+  // ── バッファを1エントリとして登録 ──
+  function flush(buf) {
+    const trimmed = buf.trim();
+    if (!trimmed) return;
+    const firstLine = trimmed.split('\n')[0];
+    const parser = detectFormat(firstLine);
+    try {
+      const entry = parser.parse(trimmed);
+      entry.format     = parser.name;
+      entry.formatColor = parser.color;
+      entry.file       = filename;
+      entry.lineNo     = lineNo;
+      entry.tsDate     = normalizeTimestamp(entry.timestamp);
+      entries.push(entry);
+    } catch(_e) {
+      // パース失敗時は最低限の情報でGenericエントリとして登録
+      const lvM = trimmed.match(/\b(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|CRITICAL)\b/i);
+      const tsM = trimmed.match(/\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}/);
+      entries.push({
+        level: lvM ? lvM[1].toUpperCase().replace('WARNING','WARN').replace('CRITICAL','FATAL') : 'UNKNOWN',
+        timestamp: tsM ? tsM[0] : null,
+        tsDate: tsM ? normalizeTimestamp(tsM[0]) : null,
+        source: '',
+        message: trimmed.slice(0, 300),
+        fields: {},
+        raw: trimmed,
+        format: 'Generic',
+        formatColor: '#94a3b8',
+        file: filename,
+        lineNo: lineNo
+      });
+    }
+  }
+
+  let buffer = '';
+  const MAX_STACK_LINES = 40; // スタックトレースとして許容する最大追加行数
+  let stackCount = 0;
+
+  for (const line of rawLines) {
+    lineNo++;
+    // 空行
+    if (!line.trim()) {
+      if (buffer) { flush(buffer); buffer = ''; stackCount = 0; }
+      continue;
+    }
+    // ヘッダー・コメント行はスキップ
+    if (isHeaderOrComment(line)) continue;
+
+    if (isNewEntry(line)) {
+      // 新エントリ開始 → 前のバッファを flush して新バッファ開始
+      if (buffer) { flush(buffer); stackCount = 0; }
+      buffer = line;
+    } else if (buffer && isContinuation(line) && stackCount < MAX_STACK_LINES) {
+      // スタックトレース・継続行 → バッファに追記
+      buffer += '\n' + line;
+      stackCount++;
+    } else {
+      // どちらでもない行（前のバッファが空、またはスタック上限超え）
+      if (buffer) { flush(buffer); stackCount = 0; }
+      // この行自体を新バッファとして開始
+      // もし isNewEntry でなかった場合も1行エントリとして扱う
+      buffer = line;
+    }
+  }
+  if (buffer) flush(buffer);
 
   fileMap[filename] = entries;
   allLogs = Object.values(fileMap).flat();
