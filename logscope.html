@@ -749,7 +749,7 @@
       <div class="drop-icon">📂</div>
       <div class="drop-title">ログファイルをドロップ</div>
       <div class="drop-sub">複数ファイル対応 · フォーマット自動判別 · .log .txt .json .csv など</div>
-      <button class="drop-btn" onclick="document.getElementById('file-input').click()">
+      <button class="drop-btn" id="drop-btn">
         ＋ ファイルを選択
       </button>
       <input type="file" id="file-input" multiple accept=".log,.txt,.json,.csv,.out,.trace,.gz">
@@ -794,7 +794,7 @@
         <div class="ai-header">
           <div class="ai-dot"></div>
           <div class="ai-title">AI 自動分析</div>
-          <button class="ai-run-btn" id="ai-run-btn" onclick="runAiAnalysis()">▶ 分析実行</button>
+          <button class="ai-run-btn" id="ai-run-btn">▶ 分析実行</button>
         </div>
         <div class="ai-body">
           <div class="ai-placeholder" id="ai-placeholder">ログを読み込んだ後「分析実行」を押すと、エラーパターン・異常検出・改善提案を自動生成します。</div>
@@ -805,24 +805,24 @@
       <!-- Time Range Filter Bar -->
       <div class="time-filter-bar" id="time-filter-bar">
         <span class="time-filter-label">⏱ 期間</span>
-        <button class="time-preset-btn active" id="preset-all"  onclick="setPreset('all')">全期間</button>
-        <button class="time-preset-btn" id="preset-1h"   onclick="setPreset('1h')">1時間</button>
-        <button class="time-preset-btn" id="preset-6h"   onclick="setPreset('6h')">6時間</button>
-        <button class="time-preset-btn" id="preset-24h"  onclick="setPreset('24h')">24時間</button>
-        <button class="time-preset-btn" id="preset-7d"   onclick="setPreset('7d')">7日間</button>
+        <button class="time-preset-btn active" id="preset-all">全期間</button>
+        <button class="time-preset-btn" id="preset-1h">1時間</button>
+        <button class="time-preset-btn" id="preset-6h">6時間</button>
+        <button class="time-preset-btn" id="preset-24h">24時間</button>
+        <button class="time-preset-btn" id="preset-7d">7日間</button>
         <span class="time-sep">|</span>
-        <input type="datetime-local" class="time-input" id="time-from" onchange="onManualTimeChange()">
+        <input type="datetime-local" class="time-input" id="time-from">
         <span style="color:var(--text-dim);font-size:10px">→</span>
-        <input type="datetime-local" class="time-input" id="time-to"   onchange="onManualTimeChange()">
-        <button class="time-clear-btn" onclick="clearTimeRange()">✕ リセット</button>
+        <input type="datetime-local" class="time-input" id="time-to">
+        <button class="time-clear-btn" id="time-clear-btn">✕ リセット</button>
         <div class="time-range-info" id="time-range-info">—</div>
         <div class="gran-group">
           <span class="gran-label">粒度</span>
-          <button class="gran-btn" id="gran-sec"  onclick="setGran('sec')">秒</button>
-          <button class="gran-btn" id="gran-min"  onclick="setGran('min')">分</button>
-          <button class="gran-btn active" id="gran-hour" onclick="setGran('hour')">時</button>
-          <button class="gran-btn" id="gran-day"  onclick="setGran('day')">日</button>
-          <button class="gran-btn" id="gran-week" onclick="setGran('week')">週</button>
+          <button class="gran-btn" id="gran-sec">秒</button>
+          <button class="gran-btn" id="gran-min">分</button>
+          <button class="gran-btn active" id="gran-hour">時</button>
+          <button class="gran-btn" id="gran-day">日</button>
+          <button class="gran-btn" id="gran-week">週</button>
         </div>
       </div>
 
@@ -851,13 +851,13 @@
       <div class="controls">
         <div class="search-box">
           <span class="search-icon">🔍</span>
-          <input type="text" id="search-input" placeholder="キーワード検索 / regex..." oninput="applyFilters()">
+          <input type="text" id="search-input" placeholder="キーワード検索 / regex...">
         </div>
-        <button class="filter-btn" id="filter-all" onclick="setLevelFilter('ALL')">ALL</button>
-        <button class="filter-btn error" id="filter-error" onclick="setLevelFilter('ERROR')">ERROR</button>
-        <button class="filter-btn warn"  id="filter-warn"  onclick="setLevelFilter('WARN')">WARN</button>
-        <button class="filter-btn info"  id="filter-info"  onclick="setLevelFilter('INFO')">INFO</button>
-        <button class="filter-btn debug" id="filter-debug" onclick="setLevelFilter('DEBUG')">DEBUG</button>
+        <button class="filter-btn" id="filter-all">ALL</button>
+        <button class="filter-btn error" id="filter-error">ERROR</button>
+        <button class="filter-btn warn"  id="filter-warn">WARN</button>
+        <button class="filter-btn info"  id="filter-info">INFO</button>
+        <button class="filter-btn debug" id="filter-debug">DEBUG</button>
       </div>
 
       <!-- Log table -->
@@ -1077,11 +1077,12 @@ let currentGran = 'hour'; // sec | min | hour | day | week
 let currentPreset = 'all';
 
 // ─────────────────────────────────────────────
-// FILE LOADING
+// FILE LOADING & ALL BUTTON WIRING
 // ─────────────────────────────────────────────
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 
+// Drop zone
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
@@ -1089,7 +1090,39 @@ dropZone.addEventListener('drop', e => {
   dropZone.classList.remove('drag-over');
   loadFiles([...e.dataTransfer.files]);
 });
+// "ファイルを選択" button
+document.getElementById('drop-btn').addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => loadFiles([...e.target.files]));
+
+// AI analysis
+document.getElementById('ai-run-btn').addEventListener('click', runAiAnalysis);
+
+// Time preset buttons
+['all','1h','6h','24h','7d'].forEach(p => {
+  document.getElementById('preset-' + p).addEventListener('click', () => setPreset(p));
+});
+
+// Time inputs
+document.getElementById('time-from').addEventListener('change', onManualTimeChange);
+document.getElementById('time-to').addEventListener('change', onManualTimeChange);
+
+// Clear time range
+document.getElementById('time-clear-btn').addEventListener('click', clearTimeRange);
+
+// Granularity buttons
+['sec','min','hour','day','week'].forEach(g => {
+  document.getElementById('gran-' + g).addEventListener('click', () => setGran(g));
+});
+
+// Level filter buttons
+document.getElementById('filter-all').addEventListener('click',   () => setLevelFilter('ALL'));
+document.getElementById('filter-error').addEventListener('click', () => setLevelFilter('ERROR'));
+document.getElementById('filter-warn').addEventListener('click',  () => setLevelFilter('WARN'));
+document.getElementById('filter-info').addEventListener('click',  () => setLevelFilter('INFO'));
+document.getElementById('filter-debug').addEventListener('click', () => setLevelFilter('DEBUG'));
+
+// Search input
+document.getElementById('search-input').addEventListener('input', applyFilters);
 
 function loadFiles(files) {
   const promises = files.map(f => new Promise(res => {
@@ -1157,12 +1190,21 @@ function buildTabs() {
   const files = Object.keys(fileMap);
   const total = allLogs.length;
 
-  tabs.innerHTML = `<div class="file-tab ${currentFile==='ALL'?'active':''}" onclick="switchFile('ALL')">ALL <span class="tab-count">${total}</span></div>`;
+  tabs.innerHTML = '';
+
+  const allTab = document.createElement('div');
+  allTab.className = 'file-tab' + (currentFile === 'ALL' ? ' active' : '');
+  allTab.innerHTML = 'ALL <span class="tab-count">' + total + '</span>';
+  allTab.addEventListener('click', () => switchFile('ALL'));
+  tabs.appendChild(allTab);
+
   files.forEach(f => {
     const cnt = fileMap[f].length;
-    tabs.innerHTML += `<div class="file-tab ${currentFile===f?'active':''}" onclick="switchFile('${f}')">
-      ${f.length > 20 ? '…'+f.slice(-18) : f} <span class="tab-count">${cnt}</span>
-    </div>`;
+    const tab = document.createElement('div');
+    tab.className = 'file-tab' + (currentFile === f ? ' active' : '');
+    tab.innerHTML = (f.length > 20 ? '…' + f.slice(-18) : f) + ' <span class="tab-count">' + cnt + '</span>';
+    tab.addEventListener('click', () => switchFile(f));
+    tabs.appendChild(tab);
   });
 }
 
@@ -1605,29 +1647,35 @@ function renderTable() {
   const start = (currentPage-1)*PAGE_SIZE;
   const slice = filteredLogs.slice(start, start+PAGE_SIZE);
 
+  tbody.innerHTML = '';
   if (slice.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">一致するログが見つかりません</div></td></tr>`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6"><div class="empty-state">一致するログが見つかりません</div></td>';
+    tbody.appendChild(tr);
   } else {
-    tbody.innerHTML = slice.map((e,i) => {
+    slice.forEach((e, i) => {
       const no = start + i + 1;
       const ts = e.timestamp ? String(e.timestamp).replace('T',' ').replace(/\.\d+Z?/,'') : '—';
       const lvl = e.level || 'UNKNOWN';
-      const normLvl = ['WARNING'].includes(lvl) ? 'WARN' : lvl;
+      const normLvl = lvl === 'WARNING' ? 'WARN' : lvl;
       const msg = escHtml(e.message || e.raw || '');
       const src = escHtml(e.source || '');
-      return `<tr onclick="toggleDetail(${no-1}, this)" data-idx="${no-1}">
-        <td style="color:var(--text-dim);font-size:10px">${no}</td>
-        <td class="td-time">${ts}</td>
-        <td><span class="level-badge level-${normLvl}">${lvl}</span></td>
-        <td class="td-source" title="${src}">${src||'—'}</td>
-        <td><span class="td-format" style="color:${e.formatColor}">${e.format}</span></td>
-        <td class="td-message" title="${msg}">${msg}</td>
-      </tr>`;
-    }).join('');
+      const tr = document.createElement('tr');
+      tr.dataset.idx = no - 1;
+      tr.innerHTML =
+        '<td style="color:var(--text-dim);font-size:10px">' + no + '</td>' +
+        '<td class="td-time">' + ts + '</td>' +
+        '<td><span class="level-badge level-' + normLvl + '">' + lvl + '</span></td>' +
+        '<td class="td-source" title="' + src + '">' + (src||'—') + '</td>' +
+        '<td><span class="td-format" style="color:' + e.formatColor + '">' + e.format + '</span></td>' +
+        '<td class="td-message" title="' + msg + '">' + msg + '</td>';
+      tr.addEventListener('click', function() { toggleDetail(no - 1, this); });
+      tbody.appendChild(tr);
+    });
   }
 
   // Pagination
-  document.getElementById('page-info').textContent = `${totalFiltered.toLocaleString()} 件 (${start+1}–${Math.min(start+PAGE_SIZE,totalFiltered)})`;
+  document.getElementById('page-info').textContent = totalFiltered.toLocaleString() + ' 件 (' + (start+1) + '–' + Math.min(start+PAGE_SIZE, totalFiltered) + ')';
   const btns = document.getElementById('page-btns');
   btns.innerHTML = '';
 
@@ -1635,7 +1683,7 @@ function renderTable() {
   prev.className = 'page-btn';
   prev.textContent = '←';
   prev.disabled = currentPage <= 1;
-  prev.onclick = () => { currentPage--; renderTable(); };
+  prev.addEventListener('click', () => { currentPage--; renderTable(); });
   btns.appendChild(prev);
 
   const pageRange = getPageRange(currentPage, totalPages);
@@ -1646,9 +1694,9 @@ function renderTable() {
       btns.appendChild(el);
     } else {
       const btn = document.createElement('button');
-      btn.className = 'page-btn' + (p===currentPage?' active':'');
+      btn.className = 'page-btn' + (p === currentPage ? ' active' : '');
       btn.textContent = p;
-      btn.onclick = () => { currentPage = p; renderTable(); };
+      btn.addEventListener('click', () => { currentPage = p; renderTable(); });
       btns.appendChild(btn);
     }
   });
@@ -1657,7 +1705,7 @@ function renderTable() {
   next.className = 'page-btn';
   next.textContent = '→';
   next.disabled = currentPage >= totalPages;
-  next.onclick = () => { currentPage++; renderTable(); };
+  next.addEventListener('click', () => { currentPage++; renderTable(); });
   btns.appendChild(next);
 }
 
